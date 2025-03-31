@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Knowledge Graph Builder</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.3/font/bootstrap-icons.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f8f9fa;
+        }
+        
+        .header {
+            background-color: #343a40;
+            color: white;
+            padding: 1rem 0;
+            margin-bottom: 2rem;
+        }
+        
+        .graph-container {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fff;
+        }
+        
+        .upload-container {
+            border: 2px dashed #ddd;
+            border-radius: 5px;
+            padding: 2rem;
+            text-align: center;
+            margin-bottom: 2rem;
+            background-color: #fff;
+            transition: all 0.3s ease;
+        }
+        
+        .upload-container:hover {
+            border-color: #0d6efd;
+        }
+        
+        .upload-icon {
+            font-size: 3rem;
+            color: #6c757d;
+            margin-bottom: 1rem;
+        }
+        
+        .card {
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+        
+        .entity-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .entity-item {
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        
+        .entity-item:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .graph-node {
+            stroke: #fff;
+            stroke-width: 1.5px;
+            cursor: pointer;
+        }
+        
+        .graph-link {
+            stroke-opacity: 0.6;
+            stroke-width: 1.5px;
+        }
+        
+        .node-label {
+            font-size: 10px;
+            font-family: sans-serif;
+            pointer-events: none;
+            fill: #333;
+        }
+        
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            margin: 2rem 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col">
+                    <h1>Document Knowledge Graph Builder</h1>
+                    <p class="mb-0">Upload PDF documents to extract entities, relationships, and build a knowledge graph</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container">
+        <!-- System Initialization -->
+        <div class="row mb-4">
+            <div class="col">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">System Initialization</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>Initialize the graph database and processing services before starting.</p>
+                        <button id="initButton" class="btn btn-primary">
+                            <i class="bi bi-database-check"></i> Initialize System
+                        </button>
+                        <button id="resetButton" class="btn btn-warning ms-2">
+                            <i class="bi bi-arrow-counterclockwise"></i> Reset Entity Resolution
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Upload Section -->
+        <div class="row mb-4">
+            <div class="col">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Upload Documents</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="upload-container" id="dropArea">
+                            <div class="upload-icon">
+                                <i class="bi bi-file-earmark-pdf"></i>
+                            </div>
+                            <h5>Drag & Drop PDF files here</h5>
+                            <p>or</p>
+                            <form id="uploadForm" enctype="multipart/form-data">
+                                <div class="mb-3">
+                                    <label for="fileInput" class="form-label">Upload PDF Documents</label>
+                                    <input class="form-control" type="file" id="fileInput" accept=".pdf" name="file" multiple>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">LLM Provider</label>
+                                            <select class="form-select" id="llmProvider" name="llmProvider">
+                                                <option value="openai">OpenAI (GPT-4)</option>
+                                                <option value="gemini">Google Gemini 1.5 Flash</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">Processing Options</label>
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" id="parallelProcessing" name="parallelProcessing" value="true" checked>
+                                                <label class="form-check-label" for="parallelProcessing">Enable Parallel Processing</label>
+                                            </div>
+                                            <div class="mt-2">
+                                                <label for="concurrencyLimit" class="form-label">Concurrency Limit: <span id="concurrencyLabel">3</span></label>
+                                                <input type="range" class="form-range" min="1" max="5" step="1" id="concurrencyLimit" name="concurrencyLimit" value="3" 
+                                                    oninput="document.getElementById('concurrencyLabel').textContent = this.value">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="d-grid gap-2">
+                                    <button class="btn btn-primary" type="submit" id="uploadBtn">
+                                        <span class="spinner-border spinner-border-sm d-none" id="loadingSpinner" role="status" aria-hidden="true"></span>
+                                        <span id="btnText">Upload & Process</span>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div class="modal fade" id="loadingModal" tabindex="-1" aria-labelledby="loadingModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="loadingModalLabel">Processing Files</h5>
+                    </div>
+                    <div class="modal-body text-center">
+                        <div class="d-flex justify-content-center">
+                            <div class="spinner-border text-primary m-5" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                        <div id="processingStatus">Initializing...</div>
+                        <div class="progress mt-3">
+                            <div id="processingProgress" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsContainer" class="card mt-4 d-none">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">Processing Results</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-4">
+                    <div class="col-md-4">
+                        <div class="card text-white bg-primary">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">Entities</h6>
+                                <h2 id="entityCount">0</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card text-white bg-info">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">Relationships</h6>
+                                <h2 id="relationshipCount">0</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card text-white bg-dark">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">Processing Time</h6>
+                                <h2 id="processingTime">0s</h2>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <h5>Performance Analysis</h5>
+                <div id="performanceDetails"></div>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div class="row">
+            <!-- Graph Statistics -->
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Graph Statistics</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Total Entities:</span>
+                            <strong id="totalEntities">0</strong>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Total Relationships:</span>
+                            <strong id="totalRelationships">0</strong>
+                        </div>
+                        <hr>
+                        <h6>Entity Types</h6>
+                        <ul class="list-group list-group-flush" id="entityTypesList">
+                            <li class="list-group-item">Loading...</li>
+                        </ul>
+                    </div>
+                    <div class="card-footer">
+                        <button id="refreshStatsButton" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-arrow-repeat"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Entity Explorer -->
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Entity Explorer</h5>
+                        <div class="input-group input-group-sm" style="width: 150px;">
+                            <input type="text" class="form-control" id="entitySearchInput" placeholder="Search...">
+                            <button class="btn btn-outline-secondary" type="button" id="entitySearchButton">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="entity-list" id="entityList">
+                            <div class="p-3 text-center">
+                                <p>No entities to display</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Graph Visualization -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Knowledge Graph</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="graph-container" id="graphContainer"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Entity Details Modal -->
+        <div class="modal fade" id="entityModal" tabindex="-1" aria-labelledby="entityModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="entityModalLabel">Entity Details</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="entityModalBody">
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p>Loading entity details...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast container for notifications -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="notificationToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <strong class="me-auto" id="toastTitle">Notification</strong>
+                <small id="toastTime">just now</small>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body" id="toastMessage">
+                
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // DOM elements
+            const uploadForm = document.getElementById('uploadForm');
+            const fileInput = document.getElementById('fileInput');
+            const dropArea = document.getElementById('dropArea');
+            const loadingSpinner = document.getElementById('loadingSpinner');
+            const loadingMessage = document.getElementById('loadingMessage');
+            const entityList = document.getElementById('entityList');
+            const graphContainer = document.getElementById('graphContainer');
+            const totalEntities = document.getElementById('totalEntities');
+            const totalRelationships = document.getElementById('totalRelationships');
+            const entityTypesList = document.getElementById('entityTypesList');
+            const refreshStatsButton = document.getElementById('refreshStatsButton');
+            const entitySearchInput = document.getElementById('entitySearchInput');
+            const entitySearchButton = document.getElementById('entitySearchButton');
+            const initButton = document.getElementById('initButton');
+            const resetButton = document.getElementById('resetButton');
+
+            // Initialize modal
+            const entityModal = new bootstrap.Modal(document.getElementById('entityModal'));
+            
+            // System initialization
+            initButton.addEventListener('click', async function() {
+                try {
+                    initButton.disabled = true;
+                    initButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Initializing...';
+                    
+                    const response = await fetch('/api/pdf/initialize');
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        alert('System initialized successfully');
+                        loadGraphStats();
+                    } else {
+                        alert(`Error: ${result.error}`);
+                    }
+                } catch (error) {
+                    console.error('Error initializing system:', error);
+                    alert('Failed to initialize system');
+                } finally {
+                    initButton.disabled = false;
+                    initButton.innerHTML = '<i class="bi bi-database-check"></i> Initialize System';
+                }
+            });
+            
+            // Reset entity resolution
+            resetButton.addEventListener('click', async function() {
+                try {
+                    resetButton.disabled = true;
+                    resetButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Resetting...';
+                    
+                    const response = await fetch('/api/pdf/reset', {
+                        method: 'POST'
+                    });
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        alert('Entity resolution reset successfully');
+                    } else {
+                        alert(`Error: ${result.error}`);
+                    }
+                } catch (error) {
+                    console.error('Error resetting entity resolution:', error);
+                    alert('Failed to reset entity resolution');
+                } finally {
+                    resetButton.disabled = false;
+                    resetButton.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i> Reset Entity Resolution';
+                }
+            });
+
+            // Handle form submission
+            const uploadBtn = document.getElementById('uploadBtn');
+            const resultsContainer = document.getElementById('resultsContainer');
+            const entityCount = document.getElementById('entityCount');
+            const relationshipCount = document.getElementById('relationshipCount');
+            const processingTime = document.getElementById('processingTime');
+            const performanceDetails = document.getElementById('performanceDetails');
+            
+            uploadForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                // Validate file selection
+                if (!fileInput.files || fileInput.files.length === 0) {
+                    alert('Please select at least one PDF file to upload');
+                    return;
+                }
+                
+                // Get form data
+                const formData = new FormData(uploadForm);
+                
+                // Handle checkbox value
+                const parallelCheckbox = document.getElementById('parallelProcessing');
+                formData.set('parallelProcessing', parallelCheckbox.checked ? 'true' : 'false');
+                
+                // Show loading state
+                uploadBtn.disabled = true;
+                
+                // Show loading modal
+                const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+                const processingStatus = document.getElementById('processingStatus');
+                const processingProgress = document.getElementById('processingProgress');
+                
+                processingStatus.textContent = `Preparing to upload ${fileInput.files.length} file(s)...`;
+                processingProgress.style.width = '0%';
+                processingProgress.setAttribute('aria-valuenow', 0);
+                
+                loadingModal.show();
+                
+                console.log(`Uploading and processing ${fileInput.files.length} file(s)...`);
+                
+                try {
+                    // Send request to server
+                    const response = await fetch('/api/pdf/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    // Update status - server received files and is processing
+                    processingStatus.textContent = `Server is processing ${fileInput.files.length} file(s)...`;
+                    processingProgress.style.width = '50%';
+                    processingProgress.setAttribute('aria-valuenow', 50);
+                    
+                    // Parse response
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Failed to upload and process file');
+                    }
+                    
+                    // Update progress - files being processed
+                    processingProgress.style.width = '100%';
+                    processingProgress.setAttribute('aria-valuenow', 100);
+                    processingStatus.textContent = 'Processing complete!';
+                    
+                    const data = await response.json();
+                    
+                    console.log('Server response:', data);
+                    
+                    // Hide modal
+                    loadingModal.hide();
+                    
+                    // Show success message
+                    if (data.files && data.files.length > 0) {
+                        const successCount = data.successCount || data.files.filter(f => f.success).length;
+                        const totalCount = data.totalFiles || data.files.length;
+                        
+                        let message = `Processed ${successCount} of ${totalCount} files successfully.`;
+                        
+                        if (successCount > 0) {
+                            // Update entity list if any files were processed successfully
+                            await loadLatestEntities();
+                            await loadGraphStats();
+                            
+                            // Calculate overall stats
+                            let totalEntitiesCreated = 0;
+                            let totalRelationshipsCreated = 0;
+                            
+                            data.files.forEach(file => {
+                                if (file.success && file.results) {
+                                    totalEntitiesCreated += file.results.entities?.created || 0;
+                                    totalRelationshipsCreated += file.results.relationships?.created || 0;
+                                }
+                            });
+                            
+                            message += ` Added ${totalEntitiesCreated} entities and ${totalRelationshipsCreated} relationships to the graph.`;
+                        }
+                        
+                        showToast('PDF Processing Result', message, successCount > 0 ? 'success' : 'warning');
+                    }
+                } catch (error) {
+                    console.error('Error uploading files:', error);
+                    loadingModal.hide();
+                    showToast('Error', error.message, 'danger');
+                } finally {
+                    // Reset form state
+                    uploadBtn.disabled = false;
+                }
+            });
+            
+            // Drag and drop functionality
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, preventDefaults, false);
+            });
+            
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropArea.addEventListener(eventName, highlight, false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, unhighlight, false);
+            });
+            
+            function highlight() {
+                dropArea.classList.add('bg-light');
+            }
+            
+            function unhighlight() {
+                dropArea.classList.remove('bg-light');
+            }
+            
+            dropArea.addEventListener('drop', handleDrop, false);
+            
+            function handleDrop(e) {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                
+                if (files.length) {
+                    // FileList is not directly assignable, need to use DataTransfer
+                    const dataTransfer = new DataTransfer();
+                    
+                    // Filter for PDF files
+                    let pdfCount = 0;
+                    for (let i = 0; i < files.length; i++) {
+                        if (files[i].type === 'application/pdf') {
+                            dataTransfer.items.add(files[i]);
+                            pdfCount++;
+                        }
+                    }
+                    
+                    if (pdfCount > 0) {
+                        fileInput.files = dataTransfer.files;
+                        if (pdfCount < files.length) {
+                            showToast('File Selection', `Added ${pdfCount} PDF files. ${files.length - pdfCount} non-PDF files were ignored.`, 'info');
+                        } else {
+                            showToast('File Selection', `${pdfCount} PDF files ready to upload`, 'info');
+                        }
+                    } else {
+                        showToast('Error', 'No PDF files found in the dropped files. Only PDF files are supported.', 'danger');
+                    }
+                }
+            }
+
+            // Load graph statistics
+            async function loadGraphStats() {
+                try {
+                    // Get graph stats
+                    const statsResponse = await fetch('/api/graph/stats');
+                    const stats = await statsResponse.json();
+                    
+                    totalEntities.textContent = stats.nodes;
+                    totalRelationships.textContent = stats.relationships;
+                    
+                    // Get entity types
+                    const typesResponse = await fetch('/api/graph/entity-types');
+                    const types = await typesResponse.json();
+                    
+                    if (types && types.length) {
+                        entityTypesList.innerHTML = '';
+                        types.forEach(type => {
+                            const item = document.createElement('li');
+                            item.className = 'list-group-item d-flex justify-content-between align-items-center';
+                            item.innerHTML = `
+                                ${type.type}
+                                <span class="badge bg-primary rounded-pill">${type.count}</span>
+                            `;
+                            item.dataset.type = type.type;
+                            item.style.cursor = 'pointer';
+                            item.addEventListener('click', () => loadEntitiesByType(type.type));
+                            entityTypesList.appendChild(item);
+                        });
+                    } else {
+                        entityTypesList.innerHTML = '<li class="list-group-item">No entity types found</li>';
+                    }
+                } catch (error) {
+                    console.error('Error loading graph statistics:', error);
+                    entityTypesList.innerHTML = '<li class="list-group-item text-danger">Error loading entity types</li>';
+                }
+            }
+            
+            // Load entities by type
+            async function loadEntitiesByType(type) {
+                try {
+                    const response = await fetch(`/api/graph/entities/${type}`);
+                    const entities = await response.json();
+                    
+                    if (entities && entities.length) {
+                        entityList.innerHTML = '';
+                        entities.forEach(entity => {
+                            const item = document.createElement('div');
+                            item.className = 'entity-item p-2 border-bottom';
+                            item.innerHTML = `
+                                <div class="fw-bold">${entity.name}</div>
+                                <div class="small text-muted">${entity.labels.join(', ')}</div>
+                            `;
+                            item.dataset.id = entity.id;
+                            item.addEventListener('click', () => showEntityDetails(entity.id));
+                            entityList.appendChild(item);
+                        });
+                    } else {
+                        entityList.innerHTML = '<div class="p-3 text-center"><p>No entities found</p></div>';
+                    }
+                } catch (error) {
+                    console.error(`Error loading entities of type ${type}:`, error);
+                    entityList.innerHTML = '<div class="p-3 text-center text-danger"><p>Error loading entities</p></div>';
+                }
+            }
+            
+            // Search entities
+            entitySearchButton.addEventListener('click', searchEntities);
+            entitySearchInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    searchEntities();
+                }
+            });
+            
+            async function searchEntities() {
+                const query = entitySearchInput.value.trim();
+                if (!query) return;
+                
+                try {
+                    const response = await fetch(`/api/graph/search?query=${encodeURIComponent(query)}`);
+                    const entities = await response.json();
+                    
+                    if (entities && entities.length) {
+                        entityList.innerHTML = '';
+                        entities.forEach(entity => {
+                            const item = document.createElement('div');
+                            item.className = 'entity-item p-2 border-bottom';
+                            item.innerHTML = `
+                                <div class="fw-bold">${entity.name}</div>
+                                <div class="small text-muted">${entity.labels.join(', ')}</div>
+                            `;
+                            item.dataset.id = entity.id;
+                            item.addEventListener('click', () => showEntityDetails(entity.id));
+                            entityList.appendChild(item);
+                        });
+                    } else {
+                        entityList.innerHTML = '<div class="p-3 text-center"><p>No entities found</p></div>';
+                    }
+                } catch (error) {
+                    console.error('Error searching entities:', error);
+                    entityList.innerHTML = '<div class="p-3 text-center text-danger"><p>Error searching entities</p></div>';
+                }
+            }
+            
+            // Show entity details and visualization
+            async function showEntityDetails(entityId) {
+                try {
+                    document.getElementById('entityModalBody').innerHTML = `
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p>Loading entity details...</p>
+                        </div>
+                    `;
+                    
+                    entityModal.show();
+                    
+                    const response = await fetch(`/api/graph/entity/${entityId}`);
+                    const entity = await response.json();
+                    
+                    if (entity) {
+                        document.getElementById('entityModalLabel').textContent = entity.name;
+                        
+                        let content = `
+                            <div class="mb-3">
+                                <h6>Details</h6>
+                                <div class="mb-2">
+                                    <strong>Type:</strong> ${entity.labels.join(', ')}
+                                </div>
+                                <div class="mb-2">
+                                    <strong>Description:</strong> ${entity.description || 'No description available'}
+                                </div>
+                                <div class="mb-2">
+                                    <strong>Aliases:</strong> ${entity.aliases && entity.aliases.length ? entity.aliases.join(', ') : 'None'}
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>Outgoing Relationships (${entity.outgoing.length})</h6>
+                                    <div class="list-group">
+                        `;
+                        
+                        if (entity.outgoing.length) {
+                            entity.outgoing.forEach(rel => {
+                                content += `
+                                    <a href="#" class="list-group-item list-group-item-action" data-id="${rel.target.id}">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <i class="bi bi-arrow-right"></i> 
+                                                <span class="fw-bold">${rel.type}</span> 
+                                                <span>${rel.target.name}</span>
+                                            </div>
+                                            <span class="badge rounded-pill bg-light text-dark">${rel.target.labels[0]}</span>
+                                        </div>
+                                    </a>
+                                `;
+                            });
+                        } else {
+                            content += '<div class="p-3 text-center"><p>No outgoing relationships</p></div>';
+                        }
+                        
+                        content += `
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>Incoming Relationships (${entity.incoming.length})</h6>
+                                    <div class="list-group">
+                        `;
+                        
+                        if (entity.incoming.length) {
+                            entity.incoming.forEach(rel => {
+                                content += `
+                                    <a href="#" class="list-group-item list-group-item-action" data-id="${rel.source.id}">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <i class="bi bi-arrow-left"></i> 
+                                                <span class="fw-bold">${rel.type}</span> 
+                                                <span>${rel.source.name}</span>
+                                            </div>
+                                            <span class="badge rounded-pill bg-light text-dark">${rel.source.labels[0]}</span>
+                                        </div>
+                                    </a>
+                                `;
+                            });
+                        } else {
+                            content += '<div class="p-3 text-center"><p>No incoming relationships</p></div>';
+                        }
+                        
+                        content += `
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-3 text-center">
+                                <button class="btn btn-primary" id="visualizeEntityButton" data-id="${entityId}">
+                                    <i class="bi bi-graph-up"></i> Visualize in Graph
+                                </button>
+                            </div>
+                        `;
+                        
+                        document.getElementById('entityModalBody').innerHTML = content;
+                        
+                        // Add event listeners for relationship links
+                        document.querySelectorAll('#entityModalBody .list-group-item').forEach(item => {
+                            item.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                const id = this.dataset.id;
+                                if (id) {
+                                    showEntityDetails(id);
+                                }
+                            });
+                        });
+                        
+                        // Add event listener for visualization button
+                        document.getElementById('visualizeEntityButton').addEventListener('click', function() {
+                            entityModal.hide();
+                            visualizeEntity(this.dataset.id);
+                        });
+                    } else {
+                        document.getElementById('entityModalBody').innerHTML = '<div class="p-3 text-center text-danger"><p>Error loading entity details</p></div>';
+                    }
+                } catch (error) {
+                    console.error(`Error loading entity ${entityId}:`, error);
+                    document.getElementById('entityModalBody').innerHTML = '<div class="p-3 text-center text-danger"><p>Error loading entity details</p></div>';
+                }
+            }
+            
+            // Visualize entity in graph
+            async function visualizeEntity(entityId) {
+                try {
+                    graphContainer.innerHTML = `
+                        <div class="d-flex justify-content-center align-items-center h-100">
+                            <div class="text-center">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p>Loading graph visualization...</p>
+                            </div>
+                        </div>
+                    `;
+                    
+                    const response = await fetch(`/api/graph/visualization?entityId=${entityId}&depth=2&limit=100`);
+                    const graphData = await response.json();
+                    
+                    if (graphData && graphData.nodes && graphData.links) {
+                        graphContainer.innerHTML = '';
+                        createForceGraph(graphData);
+                    } else {
+                        graphContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><p>No graph data available</p></div>';
+                    }
+                } catch (error) {
+                    console.error(`Error visualizing entity ${entityId}:`, error);
+                    graphContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><p class="text-danger">Error loading graph visualization</p></div>';
+                }
+            }
+            
+            // Create force-directed graph
+            function createForceGraph(data) {
+                const width = graphContainer.clientWidth;
+                const height = graphContainer.clientHeight;
+                
+                // Create SVG element
+                const svg = d3.select(graphContainer)
+                    .append('svg')
+                    .attr('width', width)
+                    .attr('height', height);
+                
+                // Create group for the graph
+                const g = svg.append('g');
+                
+                // Create zoom behavior
+                const zoom = d3.zoom()
+                    .scaleExtent([0.1, 4])
+                    .on('zoom', (event) => {
+                        g.attr('transform', event.transform);
+                    });
+                
+                // Apply zoom behavior to SVG
+                svg.call(zoom);
+                
+                // Create color scale for node types
+                const color = d3.scaleOrdinal(d3.schemeCategory10);
+                
+                // Create simulation
+                const simulation = d3.forceSimulation(data.nodes)
+                    .force('link', d3.forceLink(data.links).id(d => d.id).distance(100))
+                    .force('charge', d3.forceManyBody().strength(-300))
+                    .force('center', d3.forceCenter(width / 2, height / 2))
+                    .force('collide', d3.forceCollide().radius(30));
+                
+                // Create links
+                const link = g.append('g')
+                    .selectAll('line')
+                    .data(data.links)
+                    .enter()
+                    .append('line')
+                    .attr('class', 'graph-link')
+                    .attr('stroke', '#999');
+                
+                // Create nodes
+                const node = g.append('g')
+                    .selectAll('circle')
+                    .data(data.nodes)
+                    .enter()
+                    .append('circle')
+                    .attr('class', 'graph-node')
+                    .attr('r', 10)
+                    .attr('fill', d => color(d.group))
+                    .call(d3.drag()
+                        .on('start', dragstarted)
+                        .on('drag', dragged)
+                        .on('end', dragended));
+                
+                // Add titles to nodes
+                node.append('title')
+                    .text(d => d.name);
+                
+                // Add labels to nodes
+                const label = g.append('g')
+                    .selectAll('text')
+                    .data(data.nodes)
+                    .enter()
+                    .append('text')
+                    .attr('class', 'node-label')
+                    .attr('dy', -15)
+                    .attr('text-anchor', 'middle')
+                    .text(d => d.name)
+                    .call(d3.drag()
+                        .on('start', dragstarted)
+                        .on('drag', dragged)
+                        .on('end', dragended));
+                
+                // Add event listener to nodes
+                node.on('click', function(event, d) {
+                    showEntityDetails(d.id);
+                });
+                
+                // Update positions
+                simulation.on('tick', () => {
+                    link
+                        .attr('x1', d => d.source.x)
+                        .attr('y1', d => d.source.y)
+                        .attr('x2', d => d.target.x)
+                        .attr('y2', d => d.target.y);
+                    
+                    node
+                        .attr('cx', d => d.x)
+                        .attr('cy', d => d.y);
+                    
+                    label
+                        .attr('x', d => d.x)
+                        .attr('y', d => d.y);
+                });
+                
+                // Drag functions
+                function dragstarted(event, d) {
+                    if (!event.active) simulation.alphaTarget(0.3).restart();
+                    d.fx = d.x;
+                    d.fy = d.y;
+                }
+                
+                function dragged(event, d) {
+                    d.fx = event.x;
+                    d.fy = event.y;
+                }
+                
+                function dragended(event, d) {
+                    if (!event.active) simulation.alphaTarget(0);
+                    d.fx = null;
+                    d.fy = null;
+                }
+            }
+            
+            // Refresh stats button
+            refreshStatsButton.addEventListener('click', loadGraphStats);
+            
+            // Initial load
+            loadGraphStats();
+
+            // Toast notification function
+            function showToast(title, message, type = 'info') {
+                const toast = document.getElementById('notificationToast');
+                const toastTitle = document.getElementById('toastTitle');
+                const toastMessage = document.getElementById('toastMessage');
+                const toastTime = document.getElementById('toastTime');
+                
+                // Set toast content
+                toastTitle.textContent = title;
+                toastMessage.textContent = message;
+                toastTime.textContent = new Date().toLocaleTimeString();
+                
+                // Set toast styling based on type
+                toast.classList.remove('bg-success', 'bg-danger', 'bg-warning', 'bg-info', 'text-white');
+                if (type === 'success') {
+                    toast.classList.add('bg-success', 'text-white');
+                } else if (type === 'danger') {
+                    toast.classList.add('bg-danger', 'text-white');
+                } else if (type === 'warning') {
+                    toast.classList.add('bg-warning');
+                } else {
+                    toast.classList.add('bg-info', 'text-white');
+                }
+                
+                // Show the toast
+                const bsToast = new bootstrap.Toast(toast);
+                bsToast.show();
+            }
+        });
+    </script>
+</body>
+</html> 
