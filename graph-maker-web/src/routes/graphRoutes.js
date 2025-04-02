@@ -106,7 +106,11 @@ router.get('/entities/:type', async (req, res) => {
             LIMIT toInteger($limit)
         `;
         
-        const result = await neo4jService.query(query, { type, limit, offset });
+        const result = await neo4jService.query(query, { 
+            type, 
+            limit: Number.parseInt(limit, 10), 
+            offset: Number.parseInt(offset, 10) 
+        });
         
         const entities = result.map(record => ({
             id: record.get('id'),
@@ -148,7 +152,11 @@ router.get('/search', async (req, res) => {
             LIMIT toInteger($limit)
         `;
         
-        const params = { searchQuery, typeArray: types ? types.split(',') : [], limit };
+        const params = { 
+            searchQuery, 
+            typeArray: types ? types.split(',') : [], 
+            limit: Number.parseInt(limit, 10)
+        };
         const result = await neo4jService.query(query, params);
         
         const entities = result.map(record => ({
@@ -171,8 +179,9 @@ router.get('/entity/:id', async (req, res) => {
         const { id } = req.params;
         
         const query = `
-            MATCH (e:Entity {id: $id})
-            OPTIONAL MATCH (e)-[r]->(target:Entity)
+            MATCH (e {id: $id})
+            OPTIONAL MATCH (e)-[r]->(target)
+            WHERE target.id IS NOT NULL
             WITH e, collect({
                 id: r.id,
                 type: type(r),
@@ -184,7 +193,8 @@ router.get('/entity/:id', async (req, res) => {
                 evidence: r.evidence,
                 confidence: r.confidence
             }) AS outgoing
-            OPTIONAL MATCH (source:Entity)-[r]->(e)
+            OPTIONAL MATCH (source)-[r]->(e)
+            WHERE source.id IS NOT NULL
             WITH e, outgoing, collect({
                 id: r.id,
                 type: type(r),
@@ -232,57 +242,129 @@ router.get('/visualization', async (req, res) => {
             return res.status(400).json({ error: 'Entity ID is required' });
         }
         
+        console.log(`Visualization request for entity ${entityId} with depth ${depth} and limit ${limit}`);
+        
+        // Use a simpler query that just gets direct relationships
+        // This avoids the complexity of variable-length paths that might be causing issues
         const query = `
-            MATCH path = (e:Entity {id: $entityId})-[*1..$depth]-(connected)
-            WITH e, path, connected
-            LIMIT $limit
-            WITH collect(e) + collect(connected) AS nodes, collect(relationships(path)) AS rels
-            RETURN 
-                [n IN nodes | {
+            // First get the entity
+            MATCH (e) WHERE e.id = $entityId
+            
+            // Get direct relationships (depth 1)
+            OPTIONAL MATCH (e)-[r1]->(n1)
+            WHERE n1.id IS NOT NULL
+            WITH e, collect({
+                source: e,
+                rel: r1,
+                target: n1,
+                direction: 'outgoing'
+            }) as outgoing
+            
+            // Get incoming relationships
+            OPTIONAL MATCH (n2)-[r2]->(e)
+            WHERE n2.id IS NOT NULL
+            WITH e, outgoing, collect({
+                source: n2,
+                rel: r2,
+                target: e,
+                direction: 'incoming'
+            }) as incoming
+            
+            // Combine all nodes and relationships
+            WITH e, outgoing + incoming as rels
+            
+            // Create nodes and links collections
+            WITH
+                [e] + [rel IN rels | 
+                    CASE rel.direction
+                        WHEN 'outgoing' THEN rel.target
+                        ELSE rel.source
+                    END
+                ] as allNodes,
+                rels
+            
+            RETURN
+                // Process nodes
+                [n IN allNodes | {
                     id: n.id,
                     label: head(labels(n)),
                     name: n.name,
                     group: head(labels(n))
-                }] AS nodes,
-                [r IN REDUCE(s = [], rel IN rels | s + rel) | {
-                    id: r.id,
-                    source: startNode(r).id,
-                    target: endNode(r).id,
-                    type: type(r),
-                    label: type(r)
-                }] AS relationships
+                }] as nodes,
+                
+                // Process relationships - simplified to avoid NULL issues
+                [r IN rels WHERE r.rel IS NOT NULL | {
+                    id: COALESCE(r.rel.id, toString(id(r.rel))),
+                    source: r.source.id,
+                    target: r.target.id,
+                    type: type(r.rel),
+                    label: type(r.rel)
+                }] as relationships
         `;
         
+        console.log("Executing simplified visualization query");
+        
         const result = await neo4jService.query(query, { 
-            entityId, 
-            depth: parseInt(depth), 
-            limit: parseInt(limit) 
+            entityId
         });
         
+        console.log(`Query execution complete. Got ${result.length} result records`);
+        
         if (result.length === 0) {
+            console.log("No results returned from visualization query");
             return res.status(404).json({ error: 'Entity not found or no connections available' });
         }
         
-        // Deduplicate nodes and relationships (they might appear multiple times in different paths)
-        const nodesMap = new Map();
-        for (const node of result[0].get('nodes')) {
-            if (!nodesMap.has(node.id)) {
-                nodesMap.set(node.id, node);
-            }
-        }
+        // Create a simpler graph structure from the results
+        const nodes = result[0].get('nodes');
+        const relationships = result[0].get('relationships');
         
-        const relsMap = new Map();
-        for (const rel of result[0].get('relationships')) {
-            const relKey = `${rel.source}-${rel.type}-${rel.target}`;
-            if (!relsMap.has(relKey)) {
-                relsMap.set(relKey, rel);
-            }
-        }
+        // Validate all nodes exist in the database before adding them to the graph
+        const nodeIds = nodes.map(node => node.id);
+        const validationQuery = `
+            UNWIND $nodeIds AS nodeId
+            MATCH (n {id: nodeId})
+            RETURN n.id AS id
+        `;
+        const validatedNodes = await neo4jService.query(validationQuery, { nodeIds });
+        const validNodeIds = new Set(validatedNodes.map(record => record.get('id')));
         
+        // Filter out any invalid nodes
+        const validNodes = nodes.filter(node => validNodeIds.has(node.id));
+        
+        // Filter out any relationships with null source or target or with invalid nodes
+        const validRelationships = relationships.filter(rel => 
+            rel && rel.source && rel.target && 
+            typeof rel.source === 'string' && 
+            typeof rel.target === 'string' &&
+            validNodeIds.has(rel.source) &&
+            validNodeIds.has(rel.target)
+        );
+        
+        // Deduplicate nodes by ID
+        const uniqueNodes = Array.from(
+            new Map(validNodes.map(node => [node.id, node])).values()
+        );
+        
+        // Convert to D3 format
         const graph = {
-            nodes: Array.from(nodesMap.values()),
-            links: Array.from(relsMap.values())
+            nodes: uniqueNodes,
+            links: validRelationships
         };
+        
+        console.log(`Returning graph with ${graph.nodes.length} nodes and ${graph.links.length} links`);
+        
+        // Check for empty data
+        if (graph.nodes.length === 0) {
+            console.log("Warning: No nodes in the graph");
+            return res.status(404).json({ error: 'No nodes available for visualization' });
+        }
+        
+        if (graph.links.length === 0) {
+            console.log("Warning: Entity exists but has no relationships");
+            // Still return the single node for visualization
+            console.log("Returning just the entity node for visualization");
+        }
         
         res.status(200).json(graph);
     } catch (error) {

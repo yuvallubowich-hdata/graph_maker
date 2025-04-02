@@ -766,7 +766,19 @@ class Neo4jService {
     async query(query, params = {}) {
         const session = this.driver.session();
         try {
-            const result = await session.run(query, params);
+            // Convert any numeric parameters to Neo4j integers
+            const convertedParams = {};
+            
+            for (const [key, value] of Object.entries(params)) {
+                // If the value is a number and not NaN, convert to Neo4j integer
+                if (typeof value === 'number' && !isNaN(value)) {
+                    convertedParams[key] = neo4j.int(Math.floor(value));
+                } else {
+                    convertedParams[key] = value;
+                }
+            }
+            
+            const result = await session.run(query, convertedParams);
             return result.records;
         } catch (error) {
             console.error('Error executing Neo4j query:', error);

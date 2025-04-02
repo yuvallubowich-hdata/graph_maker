@@ -28,6 +28,8 @@
             border: 1px solid #ddd;
             border-radius: 5px;
             background-color: #fff;
+            overflow: hidden;
+            position: relative;
         }
         
         .upload-container {
@@ -585,7 +587,45 @@
                 }
             }
 
-            // Load graph statistics
+            // Load most recent entities
+            async function loadLatestEntities() {
+                try {
+                    // First get the entity types
+                    const typesResponse = await fetch('/api/graph/entity-types');
+                    const types = await typesResponse.json();
+                    
+                    if (types && types.length) {
+                        // Find the type with the most entities
+                        const mostPopulatedType = types.reduce(
+                            (prev, current) => (prev.count > current.count) ? prev : current
+                        );
+                        
+                        // Load entities of that type
+                        if (mostPopulatedType && mostPopulatedType.type) {
+                            await loadEntitiesByType(mostPopulatedType.type);
+                            
+                            // Get the first entity to visualize
+                            const entitiesResponse = await fetch(`/api/graph/entities/${mostPopulatedType.type}?limit=1`);
+                            const entities = await entitiesResponse.json();
+                            
+                            if (entities && entities.length > 0) {
+                                // Visualize the first entity
+                                await visualizeEntity(entities[0].id);
+                            } else {
+                                graphContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><p>No entities available to visualize</p></div>';
+                            }
+                        }
+                    } else {
+                        entityList.innerHTML = '<div class="p-3 text-center"><p>No entities found</p></div>';
+                        graphContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><p>No entities available to visualize</p></div>';
+                    }
+                } catch (error) {
+                    console.error('Error loading latest entities:', error);
+                    entityList.innerHTML = '<div class="p-3 text-center text-danger"><p>Error loading entities</p></div>';
+                    graphContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><p class="text-danger">Error loading graph</p></div>';
+                }
+            }
+            
             async function loadGraphStats() {
                 try {
                     // Get graph stats
@@ -702,17 +742,45 @@
                     
                     entityModal.show();
                     
-                    const response = await fetch(`/api/graph/entity/${entityId}`);
-                    const entity = await response.json();
+                    // Check if entity exists first
+                    const checkResponse = await fetch(`/api/graph/entity/${entityId}`);
+                    
+                    if (!checkResponse.ok) {
+                        // Entity doesn't exist - show error and offer to remove it from visualization
+                        document.getElementById('entityModalBody').innerHTML = `
+                            <div class="p-3 text-center text-danger">
+                                <i class="bi bi-exclamation-triangle" style="font-size: 2rem;"></i>
+                                <p class="mt-3">This entity no longer exists in the database.</p>
+                                <p>It may have been deleted or incorrectly imported.</p>
+                                <button id="refreshGraphBtn" class="btn btn-primary mt-3">
+                                    <i class="bi bi-arrow-repeat"></i> Refresh Graph
+                                </button>
+                            </div>
+                        `;
+                        
+                        // Add event listener to the refresh button
+                        document.getElementById('refreshGraphBtn').addEventListener('click', function() {
+                            entityModal.hide();
+                            // Force a refresh of the graph data
+                            loadLatestEntities();
+                        });
+                        
+                        return;
+                    }
+                    
+                    const entity = await checkResponse.json();
                     
                     if (entity) {
-                        document.getElementById('entityModalLabel').textContent = entity.name;
+                        document.getElementById('entityModalLabel').textContent = entity.name || 'Entity Details';
+                        
+                        // Ensure labels is an array even if undefined
+                        const entityLabels = Array.isArray(entity.labels) ? entity.labels : [];
                         
                         let content = `
                             <div class="mb-3">
                                 <h6>Details</h6>
                                 <div class="mb-2">
-                                    <strong>Type:</strong> ${entity.labels.join(', ')}
+                                    <strong>Type:</strong> ${entityLabels.join(', ') || 'Unknown'}
                                 </div>
                                 <div class="mb-2">
                                     <strong>Description:</strong> ${entity.description || 'No description available'}
@@ -724,21 +792,24 @@
                             
                             <div class="row">
                                 <div class="col-md-6">
-                                    <h6>Outgoing Relationships (${entity.outgoing.length})</h6>
+                                    <h6>Outgoing Relationships (${entity.outgoing ? entity.outgoing.length : 0})</h6>
                                     <div class="list-group">
                         `;
                         
-                        if (entity.outgoing.length) {
+                        if (entity.outgoing && entity.outgoing.length) {
                             entity.outgoing.forEach(rel => {
+                                const targetLabels = Array.isArray(rel.target.labels) ? rel.target.labels : [];
+                                const targetLabel = targetLabels.length > 0 ? targetLabels[0] : 'Entity';
+                                
                                 content += `
                                     <a href="#" class="list-group-item list-group-item-action" data-id="${rel.target.id}">
                                         <div class="d-flex justify-content-between align-items-center">
                                             <div>
                                                 <i class="bi bi-arrow-right"></i> 
-                                                <span class="fw-bold">${rel.type}</span> 
-                                                <span>${rel.target.name}</span>
+                                                <span class="fw-bold">${rel.type || 'RELATED_TO'}</span> 
+                                                <span>${rel.target.name || 'Unknown'}</span>
                                             </div>
-                                            <span class="badge rounded-pill bg-light text-dark">${rel.target.labels[0]}</span>
+                                            <span class="badge rounded-pill bg-light text-dark">${targetLabel}</span>
                                         </div>
                                     </a>
                                 `;
@@ -751,21 +822,24 @@
                                     </div>
                                 </div>
                                 <div class="col-md-6">
-                                    <h6>Incoming Relationships (${entity.incoming.length})</h6>
+                                    <h6>Incoming Relationships (${entity.incoming ? entity.incoming.length : 0})</h6>
                                     <div class="list-group">
                         `;
                         
-                        if (entity.incoming.length) {
+                        if (entity.incoming && entity.incoming.length) {
                             entity.incoming.forEach(rel => {
+                                const sourceLabels = Array.isArray(rel.source.labels) ? rel.source.labels : [];
+                                const sourceLabel = sourceLabels.length > 0 ? sourceLabels[0] : 'Entity';
+                                
                                 content += `
                                     <a href="#" class="list-group-item list-group-item-action" data-id="${rel.source.id}">
                                         <div class="d-flex justify-content-between align-items-center">
                                             <div>
                                                 <i class="bi bi-arrow-left"></i> 
-                                                <span class="fw-bold">${rel.type}</span> 
-                                                <span>${rel.source.name}</span>
+                                                <span class="fw-bold">${rel.type || 'RELATED_TO'}</span> 
+                                                <span>${rel.source.name || 'Unknown'}</span>
                                             </div>
-                                            <span class="badge rounded-pill bg-light text-dark">${rel.source.labels[0]}</span>
+                                            <span class="badge rounded-pill bg-light text-dark">${sourceLabel}</span>
                                         </div>
                                     </a>
                                 `;
@@ -809,7 +883,7 @@
                     }
                 } catch (error) {
                     console.error(`Error loading entity ${entityId}:`, error);
-                    document.getElementById('entityModalBody').innerHTML = '<div class="p-3 text-center text-danger"><p>Error loading entity details</p></div>';
+                    document.getElementById('entityModalBody').innerHTML = '<div class="p-3 text-center text-danger"><p>Error loading entity details: ' + error.message + '</p></div>';
                 }
             }
             
@@ -827,31 +901,92 @@
                         </div>
                     `;
                     
-                    const response = await fetch(`/api/graph/visualization?entityId=${entityId}&depth=2&limit=100`);
-                    const graphData = await response.json();
+                    console.log("Visualizing entity:", entityId);
+                    const url = `/api/graph/visualization?entityId=${entityId}&depth=2&limit=100`;
+                    console.log("Fetching from URL:", url);
                     
-                    if (graphData && graphData.nodes && graphData.links) {
+                    const response = await fetch(url);
+                    
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch graph data: ${response.status} ${response.statusText}`);
+                    }
+                    
+                    const graphData = await response.json();
+                    console.log("Graph data received:", JSON.stringify(graphData));
+                    
+                    if (graphData && graphData.nodes && graphData.nodes.length > 0 && graphData.links && graphData.links.length > 0) {
                         graphContainer.innerHTML = '';
+                        console.log(`Rendering graph with ${graphData.nodes.length} nodes and ${graphData.links.length} links`);
                         createForceGraph(graphData);
                     } else {
-                        graphContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><p>No graph data available</p></div>';
+                        console.log("Received empty or incomplete graph data:", graphData);
+                        graphContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><p>No connections available for this entity</p></div>';
                     }
                 } catch (error) {
                     console.error(`Error visualizing entity ${entityId}:`, error);
-                    graphContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><p class="text-danger">Error loading graph visualization</p></div>';
+                    graphContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><p class="text-danger">Error loading graph visualization: ' + error.message + '</p></div>';
                 }
             }
             
             // Create force-directed graph
             function createForceGraph(data) {
-                const width = graphContainer.clientWidth;
-                const height = graphContainer.clientHeight;
+                // Clear previous graph if any
+                graphContainer.innerHTML = '';
                 
-                // Create SVG element
+                const width = graphContainer.clientWidth || 500;
+                const height = 500; // Fixed height to ensure visibility
+                
+                // Handle empty data
+                if (!data || !data.nodes || data.nodes.length === 0) {
+                    graphContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><p>No graph data available</p></div>';
+                    return;
+                }
+                
+                console.log("Creating graph with data:", data);
+                console.log(`Node count: ${data.nodes.length}, Link count: ${data.links ? data.links.length : 0}`);
+                
+                // Special case for single node (no links)
+                if (data.nodes.length === 1 && (!data.links || data.links.length === 0)) {
+                    console.log("Single node visualization");
+                    const svg = d3.select(graphContainer)
+                        .append('svg')
+                        .attr('width', width)
+                        .attr('height', height)
+                        .attr('viewBox', [0, 0, width, height]);
+                    
+                    // Create a single node in the center
+                    const g = svg.append('g');
+                    const node = g.append('circle')
+                        .attr('cx', width/2)
+                        .attr('cy', height/2)
+                        .attr('r', 20)
+                        .attr('fill', '#1f77b4')
+                        .attr('stroke', '#fff')
+                        .attr('stroke-width', 1.5);
+                    
+                    // Add label
+                    g.append('text')
+                        .attr('x', width/2)
+                        .attr('y', height/2 - 30)
+                        .attr('text-anchor', 'middle')
+                        .attr('class', 'node-label')
+                        .text(data.nodes[0].name);
+                    
+                    // Add click handler
+                    node.on('click', function() {
+                        showEntityDetails(data.nodes[0].id);
+                    });
+                    
+                    return;
+                }
+                
+                // Standard force-directed graph for multiple nodes
                 const svg = d3.select(graphContainer)
                     .append('svg')
                     .attr('width', width)
-                    .attr('height', height);
+                    .attr('height', height)
+                    .attr('viewBox', [0, 0, width, height])
+                    .attr('style', 'max-width: 100%; height: auto;');
                 
                 // Create group for the graph
                 const g = svg.append('g');
@@ -869,37 +1004,54 @@
                 // Create color scale for node types
                 const color = d3.scaleOrdinal(d3.schemeCategory10);
                 
-                // Create simulation
+                // Ensure links array exists
+                const links = data.links || [];
+                
+                // Fix any issues with the links data
+                links.forEach(link => {
+                    // Ensure source and target are strings for D3 lookup
+                    if (typeof link.source === 'object') {
+                        link.source = link.source?.id || null;
+                    }
+                    if (typeof link.target === 'object') {
+                        link.target = link.target?.id || null;
+                    }
+                });
+                
+                // Remove any links with null source or target
+                const validLinks = links.filter(link => link.source && link.target);
+                
+                // Create simulation with proper node and link references
                 const simulation = d3.forceSimulation(data.nodes)
-                    .force('link', d3.forceLink(data.links).id(d => d.id).distance(100))
+                    .force('link', d3.forceLink(validLinks).id(d => d.id).distance(100))
                     .force('charge', d3.forceManyBody().strength(-300))
                     .force('center', d3.forceCenter(width / 2, height / 2))
                     .force('collide', d3.forceCollide().radius(30));
                 
-                // Create links
+                // Create links with proper source/target references
                 const link = g.append('g')
+                    .attr('stroke', '#999')
+                    .attr('stroke-opacity', 0.6)
                     .selectAll('line')
-                    .data(data.links)
-                    .enter()
-                    .append('line')
-                    .attr('class', 'graph-link')
-                    .attr('stroke', '#999');
+                    .data(validLinks)
+                    .join('line')
+                    .attr('stroke-width', 1.5);
                 
                 // Create nodes
                 const node = g.append('g')
+                    .attr('stroke', '#fff')
+                    .attr('stroke-width', 1.5)
                     .selectAll('circle')
                     .data(data.nodes)
-                    .enter()
-                    .append('circle')
-                    .attr('class', 'graph-node')
+                    .join('circle')
                     .attr('r', 10)
-                    .attr('fill', d => color(d.group))
+                    .attr('fill', d => color(d.group || d.label))
                     .call(d3.drag()
                         .on('start', dragstarted)
                         .on('drag', dragged)
                         .on('end', dragended));
                 
-                // Add titles to nodes
+                // Add titles to nodes for tooltips
                 node.append('title')
                     .text(d => d.name);
                 
@@ -907,8 +1059,7 @@
                 const label = g.append('g')
                     .selectAll('text')
                     .data(data.nodes)
-                    .enter()
-                    .append('text')
+                    .join('text')
                     .attr('class', 'node-label')
                     .attr('dy', -15)
                     .attr('text-anchor', 'middle')
@@ -964,6 +1115,43 @@
             
             // Initial load
             loadGraphStats();
+            
+            // Try to load and visualize entities if there are any in the database
+            initializeGraph();
+            
+            async function initializeGraph() {
+                try {
+                    const statsResponse = await fetch('/api/graph/stats');
+                    const stats = await statsResponse.json();
+                    
+                    if (stats.nodes > 0) {
+                        // If there are entities in the database, load and visualize them
+                        await loadLatestEntities();
+                    } else {
+                        // Show a helpful message if no data exists yet
+                        graphContainer.innerHTML = `
+                            <div class="d-flex justify-content-center align-items-center h-100">
+                                <div class="text-center">
+                                    <i class="bi bi-graph-up" style="font-size: 3rem; color: #ccc;"></i>
+                                    <p class="mt-3">No data in the knowledge graph yet</p>
+                                    <p class="small text-muted">Upload PDF files to populate the graph</p>
+                                </div>
+                            </div>
+                        `;
+                    }
+                } catch (error) {
+                    console.error('Error initializing graph:', error);
+                    graphContainer.innerHTML = `
+                        <div class="d-flex justify-content-center align-items-center h-100">
+                            <div class="text-center text-danger">
+                                <i class="bi bi-exclamation-triangle" style="font-size: 3rem;"></i>
+                                <p class="mt-3">Error initializing graph</p>
+                                <p class="small">Please check the console for details</p>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
 
             // Toast notification function
             function showToast(title, message, type = 'info') {
