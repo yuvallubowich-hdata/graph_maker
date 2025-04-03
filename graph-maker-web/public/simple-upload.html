@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Upload Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #fileStatus {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            display: none;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <h1>Simple Upload Test</h1>
+    <p>This is a minimal page to test file uploads to the server.</p>
+
+    <form id="simpleUploadForm">
+        <div>
+            <label for="fileInput">Select PDF or Word documents:</label>
+            <input type="file" id="fileInput" name="file" accept=".pdf,.doc,.docx" multiple>
+        </div>
+        <div style="margin-top: 10px;">
+            <button type="button" id="uploadButton">Upload Files</button>
+        </div>
+    </form>
+
+    <div id="fileStatus"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadButton = document.getElementById('uploadButton');
+            const fileInput = document.getElementById('fileInput');
+            const fileStatus = document.getElementById('fileStatus');
+            const uploadForm = document.getElementById('simpleUploadForm');
+
+            // Add event listeners
+            uploadButton.addEventListener('click', handleUpload);
+
+            // Upload function
+            async function handleUpload() {
+                console.log('Upload button clicked');
+                
+                if (!fileInput.files || fileInput.files.length === 0) {
+                    showStatus('Please select at least one file', 'error');
+                    return;
+                }
+
+                showStatus(`Uploading ${fileInput.files.length} file(s)...`, 'info');
+                
+                try {
+                    const formData = new FormData(uploadForm);
+                    
+                    console.log('Sending files to server...');
+                    console.log('Files:', fileInput.files);
+                    
+                    const response = await fetch('/api/pdf/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    console.log('Server response status:', response.status);
+                    
+                    const data = await response.json();
+                    console.log('Server response data:', data);
+                    
+                    if (response.ok) {
+                        showStatus(`Success! Uploaded ${data.successCount || 0} of ${data.totalFiles || 0} files.`, 'success');
+                    } else {
+                        showStatus(`Error: ${data.error || 'Unknown error'}`, 'error');
+                    }
+                } catch (error) {
+                    console.error('Error during upload:', error);
+                    showStatus(`Error: ${error.message || 'Unknown error'}`, 'error');
+                }
+            }
+
+            // Display status message
+            function showStatus(message, type) {
+                fileStatus.textContent = message;
+                fileStatus.className = type;
+                fileStatus.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html> 

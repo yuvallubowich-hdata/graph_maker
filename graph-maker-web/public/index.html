@@ -143,13 +143,91 @@
                             <div class="upload-icon">
                                 <i class="bi bi-file-earmark-pdf"></i>
                             </div>
-                            <h5>Drag & Drop PDF files here</h5>
+                            <h5>Drag & Drop PDF or Word files here</h5>
                             <p>or</p>
                             <form id="uploadForm" enctype="multipart/form-data">
-                                <div class="mb-3">
-                                    <label for="fileInput" class="form-label">Upload PDF Documents</label>
-                                    <input class="form-control" type="file" id="fileInput" accept=".pdf" name="file" multiple>
+                                <!-- Hidden input type fields for form submission -->
+                                <div class="d-none">
+                                    <input type="radio" name="inputType" id="inputTypeFile" value="file" checked>
+                                    <input type="radio" name="inputType" id="inputTypeFolder" value="folder">
                                 </div>
+                                
+                                <!-- Tab navigation for file/folder selection -->
+                                <ul class="nav nav-tabs mb-3" id="uploadTabs" role="tablist">
+                                    <li class="nav-item" role="presentation">
+                                        <button class="nav-link active" id="files-tab" data-bs-toggle="tab" data-bs-target="#files-content" type="button" role="tab" aria-controls="files-content" aria-selected="true">Upload Files</button>
+                                    </li>
+                                    <li class="nav-item" role="presentation">
+                                        <button class="nav-link" id="folder-tab" data-bs-toggle="tab" data-bs-target="#folder-content" type="button" role="tab" aria-controls="folder-content" aria-selected="false">Upload Folder</button>
+                                    </li>
+                                    <li class="nav-item" role="presentation">
+                                        <button class="nav-link" id="tracking-tab" data-bs-toggle="tab" data-bs-target="#tracking-content" type="button" role="tab" aria-controls="tracking-content" aria-selected="false">File Tracking</button>
+                                    </li>
+                                </ul>
+                                
+                                <!-- Tab content -->
+                                <div class="tab-content" id="uploadTabsContent">
+                                    <!-- Files Tab -->
+                                    <div class="tab-pane fade show active" id="files-content" role="tabpanel" aria-labelledby="files-tab">
+                                        <div class="mb-3">
+                                            <label for="fileInput" class="form-label">Upload PDF or Word Documents</label>
+                                            <input class="form-control" type="file" id="fileInput" accept=".pdf,.doc,.docx" name="file" multiple>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Folder Tab -->
+                                    <div class="tab-pane fade" id="folder-content" role="tabpanel" aria-labelledby="folder-tab">
+                                        <div class="mb-3">
+                                            <label for="folderPath" class="form-label">Select Folder Containing PDFs</label>
+                                            <div class="input-group">
+                                                <input type="text" class="form-control" id="folderPath" name="folderPath" placeholder="Enter absolute folder path (e.g., /Users/username/Documents/PDFs)" required>
+                                                <button class="btn btn-outline-secondary" type="button" id="browseFolderBtn">
+                                                    <i class="bi bi-folder2-open"></i> Browse
+                                                </button>
+                                            </div>
+                                            <div class="form-text">
+                                                All PDF and Word files in the selected folder will be processed. Files already processed will be skipped. <strong>Important:</strong> You must provide an absolute path that the server can access.
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- File Tracking Tab -->
+                                    <div class="tab-pane fade" id="tracking-content" role="tabpanel" aria-labelledby="tracking-tab">
+                                        <div class="mb-3">
+                                            <div class="d-flex justify-content-between mb-2">
+                                                <h6>Previously Processed Files</h6>
+                                                <div>
+                                                    <button type="button" class="btn btn-sm btn-outline-primary me-2" id="refreshTrackingBtn">
+                                                        <i class="bi bi-arrow-repeat"></i> Refresh
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-outline-danger" id="clearTrackingBtn">
+                                                        <i class="bi bi-trash"></i> Clear All Records
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+                                                <table class="table table-sm table-hover">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>File Name</th>
+                                                            <th>Status</th>
+                                                            <th>Processed Date</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody id="processedFilesTable">
+                                                        <tr>
+                                                            <td colspan="3" class="text-center">Loading...</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <div class="form-text">
+                                                <strong>Note:</strong> Clearing file tracking records allows reprocessing previously uploaded files.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
                                 <div class="row">
                                     <div class="col-md-6">
                                         <div class="mb-3">
@@ -176,7 +254,7 @@
                                     </div>
                                 </div>
                                 <div class="d-grid gap-2">
-                                    <button class="btn btn-primary" type="submit" id="uploadBtn">
+                                    <button class="btn btn-primary" type="button" id="uploadBtn" onclick="handleUploadClick(event)">
                                         <span class="spinner-border spinner-border-sm d-none" id="loadingSpinner" role="status" aria-hidden="true"></span>
                                         <span id="btnText">Upload & Process</span>
                                     </button>
@@ -190,21 +268,26 @@
 
         <!-- Loading Spinner -->
         <div class="modal fade" id="loadingModal" tabindex="-1" aria-labelledby="loadingModalLabel" aria-hidden="true">
-            <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title" id="loadingModalLabel">Processing Files</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
-                    <div class="modal-body text-center">
-                        <div class="d-flex justify-content-center">
-                            <div class="spinner-border text-primary m-5" role="status">
+                    <div class="modal-body">
+                        <div class="text-center mb-3">
+                            <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">Loading...</span>
                             </div>
                         </div>
-                        <div id="processingStatus">Initializing...</div>
-                        <div class="progress mt-3">
-                            <div id="processingProgress" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
+                        <p id="processingStatus">Preparing to process files...</p>
+                        <div class="progress mb-3">
+                            <div id="processingProgress" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
                         </div>
+                        <p id="fileCounter">0 files processed</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" id="stopUploadBtn" class="btn btn-warning">Stop Upload</button>
                     </div>
                 </div>
             </div>
@@ -351,242 +434,662 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // DOM elements
-            const uploadForm = document.getElementById('uploadForm');
-            const fileInput = document.getElementById('fileInput');
-            const dropArea = document.getElementById('dropArea');
-            const loadingSpinner = document.getElementById('loadingSpinner');
-            const loadingMessage = document.getElementById('loadingMessage');
-            const entityList = document.getElementById('entityList');
-            const graphContainer = document.getElementById('graphContainer');
-            const totalEntities = document.getElementById('totalEntities');
-            const totalRelationships = document.getElementById('totalRelationships');
-            const entityTypesList = document.getElementById('entityTypesList');
-            const refreshStatsButton = document.getElementById('refreshStatsButton');
-            const entitySearchInput = document.getElementById('entitySearchInput');
-            const entitySearchButton = document.getElementById('entitySearchButton');
-            const initButton = document.getElementById('initButton');
-            const resetButton = document.getElementById('resetButton');
+        // Global error handler
+        window.addEventListener('error', function(event) {
+            console.error('JavaScript error caught by global handler:', 
+                event.message, 
+                'at', event.filename, 
+                'line:', event.lineno, 
+                'column:', event.colno, 
+                'error:', event.error
+            );
+        });
 
-            // Initialize modal
-            const entityModal = new bootstrap.Modal(document.getElementById('entityModal'));
-            
-            // System initialization
-            initButton.addEventListener('click', async function() {
-                try {
-                    initButton.disabled = true;
-                    initButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Initializing...';
-                    
-                    const response = await fetch('/api/pdf/initialize');
-                    const result = await response.json();
-                    
-                    if (response.ok) {
-                        alert('System initialized successfully');
-                        loadGraphStats();
-                    } else {
-                        alert(`Error: ${result.error}`);
-                    }
-                } catch (error) {
-                    console.error('Error initializing system:', error);
-                    alert('Failed to initialize system');
-                } finally {
-                    initButton.disabled = false;
-                    initButton.innerHTML = '<i class="bi bi-database-check"></i> Initialize System';
-                }
-            });
-            
-            // Reset entity resolution
-            resetButton.addEventListener('click', async function() {
-                try {
-                    resetButton.disabled = true;
-                    resetButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Resetting...';
-                    
-                    const response = await fetch('/api/pdf/reset', {
-                        method: 'POST'
-                    });
-                    const result = await response.json();
-                    
-                    if (response.ok) {
-                        alert('Entity resolution reset successfully');
-                    } else {
-                        alert(`Error: ${result.error}`);
-                    }
-                } catch (error) {
-                    console.error('Error resetting entity resolution:', error);
-                    alert('Failed to reset entity resolution');
-                } finally {
-                    resetButton.disabled = false;
-                    resetButton.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i> Reset Entity Resolution';
-                }
-            });
-
-            // Handle form submission
-            const uploadBtn = document.getElementById('uploadBtn');
-            const resultsContainer = document.getElementById('resultsContainer');
-            const entityCount = document.getElementById('entityCount');
-            const relationshipCount = document.getElementById('relationshipCount');
-            const processingTime = document.getElementById('processingTime');
-            const performanceDetails = document.getElementById('performanceDetails');
-            
-            uploadForm.addEventListener('submit', async function(e) {
-                e.preventDefault();
+        // Define global toast notification function
+        function showToast(title, message, type = 'info') {
+            try {
+                const toast = document.getElementById('notificationToast');
+                const toastTitle = document.getElementById('toastTitle');
+                const toastMessage = document.getElementById('toastMessage');
+                const toastTime = document.getElementById('toastTime');
                 
-                // Validate file selection
-                if (!fileInput.files || fileInput.files.length === 0) {
-                    alert('Please select at least one PDF file to upload');
+                // Set toast content
+                toastTitle.textContent = title || 'Notification';
+                toastMessage.textContent = message || '';
+                toastTime.textContent = new Date().toLocaleTimeString();
+                
+                // Set toast styling based on type
+                toast.classList.remove('bg-success', 'bg-danger', 'bg-warning', 'bg-info', 'text-white');
+                if (type === 'success') {
+                    toast.classList.add('bg-success', 'text-white');
+                } else if (type === 'danger') {
+                    toast.classList.add('bg-danger', 'text-white');
+                } else if (type === 'warning') {
+                    toast.classList.add('bg-warning');
+                } else {
+                    toast.classList.add('bg-info', 'text-white');
+                }
+                
+                // Show the toast
+                const bsToast = new bootstrap.Toast(toast);
+                bsToast.show();
+            } catch (toastError) {
+                console.error('Error showing toast:', toastError);
+                alert(`${title}: ${message}`);
+            }
+        }
+
+        // Global variables for upload tracking
+        let uploadClientId = null;
+        let pollingInterval = null;
+        let currentFiles = 0;
+        let totalFiles = 0;
+        let processingComplete = false;
+        let modalClosed = false; // Track if modal has been closed already
+        let startPollingTime = Date.now();
+
+        // Function to show error toast, as a wrapper for showToast
+        function showErrorToast(title, message, type = 'danger') {
+            showToast(title, message, type);
+        }
+
+        // Function to safely close modal and clear resources
+        function safeCloseModal() {
+            // Only execute if not already closed
+            if (modalClosed) {
+                console.log("Modal already closed, skipping");
+                return;
+            }
+            
+            modalClosed = true;
+            console.log("Safely closing modal and clearing resources");
+            
+            // Clear any polling interval
+            if (pollingInterval) {
+                console.log("Clearing polling interval");
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+            
+            // Hide the modal if it exists
+            try {
+                const modalElement = document.getElementById('loadingModal');
+                if (modalElement) {
+                    const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                    if (modalInstance) {
+                        console.log("Hiding modal via Bootstrap instance");
+                        modalInstance.hide();
+                    } else {
+                        console.log("Modal instance not found, trying alternative methods");
+                        if (typeof $ !== 'undefined') {
+                            $(modalElement).modal('hide');
+                        }
+                    }
+                }
+            } catch (modalError) {
+                console.error('Error hiding modal:', modalError);
+            }
+            
+            // Reset form state
+            try {
+                const uploadBtn = document.getElementById('uploadBtn');
+                if (uploadBtn) {
+                    uploadBtn.disabled = false;
+                    const loadingSpinner = document.getElementById('loadingSpinner');
+                    if (loadingSpinner) loadingSpinner.classList.add('d-none');
+                    const btnText = document.getElementById('btnText');
+                    if (btnText) btnText.textContent = 'Upload & Process';
+                }
+            } catch (resetError) {
+                console.error('Error resetting form state:', resetError);
+            }
+        }
+
+        // Function to handle upload button clicks
+        function handleUploadClick(event) {
+            event.preventDefault();
+            console.log("Upload button clicked via onclick attribute");
+            if (typeof processFormSubmission === 'function') {
+                processFormSubmission();
+            } else {
+                console.error("processFormSubmission function not available yet");
+            }
+        }
+
+        // Global form submission function
+        async function processFormSubmission() {
+            console.log("Processing form submission");
+            
+            // Reset modal closed flag for new submission
+            modalClosed = false;
+            processingComplete = false;
+            
+            // Get references to UI elements that need to be globally available
+            const uploadBtn = document.getElementById('uploadBtn');
+            const loadingSpinner = document.getElementById('loadingSpinner');
+            const btnText = document.getElementById('btnText');
+            const loadingModalElement = document.getElementById('loadingModal');
+            const loadingModal = new bootstrap.Modal(loadingModalElement);
+            const processingStatus = document.getElementById('processingStatus');
+            const processingProgress = document.getElementById('processingProgress');
+            const fileCounter = document.getElementById('fileCounter');
+            
+            // Ensure the modal doesn't stay open indefinitely
+            let modalTimeout = setTimeout(() => {
+                try {
+                    console.log("Safety timeout - closing modal after 2 minutes");
+                    safeCloseModal();
+                    showToast('Processing Complete', 'File processing may have completed in the background.', 'info');
+                } catch (e) {
+                    console.error("Error in safety timeout:", e);
+                }
+            }, 120000); // 2 minutes
+            
+            // Function to reset form state - define this before any try/catch to ensure availability
+            function resetFormState() {
+                if (uploadBtn) {
+                    uploadBtn.disabled = false;
+                    loadingSpinner.classList.add('d-none');
+                    btnText.textContent = 'Upload & Process';
+                }
+                
+                // Clear polling if it's active
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                }
+            }
+            
+            // Handle processing completion
+            function handleProcessingComplete(success, message) {
+                console.log("Processing complete. Success:", success, "Message:", message);
+                processingComplete = true;
+                
+                // Clear the safety timeout
+                if (modalTimeout) {
+                    clearTimeout(modalTimeout);
+                    modalTimeout = null;
+                }
+                
+                // Use the safe modal closing function
+                safeCloseModal();
+                
+                if (success) {
+                    showToast('Success', message || 'Files processed successfully!', 'success');
+                } else {
+                    showErrorToast('Error', message || 'There was an error processing the files.');
+                }
+                
+                // Refresh UI components
+                if (typeof loadLatestEntities === 'function') {
+                    try {
+                        loadLatestEntities();
+                    } catch (e) {
+                        console.error("Error refreshing entities:", e);
+                    }
+                }
+                
+                if (typeof loadGraphStats === 'function') {
+                    try {
+                        loadGraphStats();
+                    } catch (e) {
+                        console.error("Error refreshing graph stats:", e);
+                    }
+                }
+                
+                // Clear the upload form
+                const uploadForm = document.getElementById('uploadForm');
+                if (uploadForm) {
+                    uploadForm.reset();
+                }
+            }
+            
+            // Function to check processing status
+            async function checkProcessingStatus(clientId) {
+                if (processingComplete || modalClosed) {
+                    if (pollingInterval) {
+                        clearInterval(pollingInterval);
+                        pollingInterval = null;
+                    }
                     return;
                 }
                 
-                // Get form data
-                const formData = new FormData(uploadForm);
-                
-                // Handle checkbox value
-                const parallelCheckbox = document.getElementById('parallelProcessing');
-                formData.set('parallelProcessing', parallelCheckbox.checked ? 'true' : 'false');
-                
-                // Show loading state
-                uploadBtn.disabled = true;
-                
-                // Show loading modal
-                const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
-                const processingStatus = document.getElementById('processingStatus');
-                const processingProgress = document.getElementById('processingProgress');
-                
-                processingStatus.textContent = `Preparing to upload ${fileInput.files.length} file(s)...`;
-                processingProgress.style.width = '0%';
-                processingProgress.setAttribute('aria-valuenow', 0);
-                
-                loadingModal.show();
-                
-                console.log(`Uploading and processing ${fileInput.files.length} file(s)...`);
-                
                 try {
-                    // Send request to server
-                    const response = await fetch('/api/pdf/upload', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    // Update status - server received files and is processing
-                    processingStatus.textContent = `Server is processing ${fileInput.files.length} file(s)...`;
-                    processingProgress.style.width = '50%';
-                    processingProgress.setAttribute('aria-valuenow', 50);
-                    
-                    // Parse response
+                    const response = await fetch(`/api/pdf/status/${clientId}`);
                     if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.error || 'Failed to upload and process file');
+                        console.error('Error getting status:', response.statusText);
+                        
+                        // If we've had multiple errors, consider processing complete
+                        const errorCount = (checkProcessingStatus.errorCount || 0) + 1;
+                        checkProcessingStatus.errorCount = errorCount;
+                        
+                        if (errorCount >= 3) {
+                            console.warn(`Multiple status check errors (${errorCount}), assuming processing is complete`);
+                            handleProcessingComplete(true, "Processing likely completed (connection issues)");
+                        }
+                        return;
                     }
                     
-                    // Update progress - files being processed
-                    processingProgress.style.width = '100%';
-                    processingProgress.setAttribute('aria-valuenow', 100);
-                    processingStatus.textContent = 'Processing complete!';
+                    // Reset error count if successful
+                    checkProcessingStatus.errorCount = 0;
                     
                     const data = await response.json();
+                    console.log('Status update:', data);
                     
-                    console.log('Server response:', data);
+                    // Check if this is a stale session
+                    const twoMinutesAgo = Date.now() - (2 * 60 * 1000);
+                    if (data.timestamp && data.timestamp < twoMinutesAgo) {
+                        console.warn("Received stale status update, session may be orphaned");
+                        handleProcessingComplete(true, "Processing likely completed while you were away");
+                        return;
+                    }
                     
-                    // Hide modal
-                    loadingModal.hide();
-                    
-                    // Show success message
-                    if (data.files && data.files.length > 0) {
-                        const successCount = data.successCount || data.files.filter(f => f.success).length;
-                        const totalCount = data.totalFiles || data.files.length;
-                        
-                        let message = `Processed ${successCount} of ${totalCount} files successfully.`;
-                        
-                        if (successCount > 0) {
-                            // Update entity list if any files were processed successfully
-                            await loadLatestEntities();
-                            await loadGraphStats();
-                            
-                            // Calculate overall stats
-                            let totalEntitiesCreated = 0;
-                            let totalRelationshipsCreated = 0;
-                            
-                            data.files.forEach(file => {
-                                if (file.success && file.results) {
-                                    totalEntitiesCreated += file.results.entities?.created || 0;
-                                    totalRelationshipsCreated += file.results.relationships?.created || 0;
-                                }
-                            });
-                            
-                            message += ` Added ${totalEntitiesCreated} entities and ${totalRelationshipsCreated} relationships to the graph.`;
+                    // Update UI based on status
+                    if (data.status === 'processing') {
+                        updateProgressUI(data);
+                    } else if (data.status === 'complete') {
+                        updateProgressUI(data);
+                        handleProcessingComplete(true, data.message || 'Processing complete');
+                    } else if (data.status === 'error') {
+                        updateProgressUI(data);
+                        handleProcessingComplete(false, data.error || 'Error processing files');
+                    } else if (data.status === 'cancelled') {
+                        updateProgressUI(data);
+                        handleProcessingComplete(false, data.message || 'Processing was cancelled');
+                    } else if (data.status === 'unknown') {
+                        // If no status is found after a while, assume processing is complete
+                        const pollingDuration = Date.now() - startPollingTime;
+                        if (pollingDuration > 20000) { // 20 seconds
+                            console.warn("No status updates received for 20 seconds, assuming processing is complete");
+                            handleProcessingComplete(true, "Processing likely completed (no status updates)");
                         }
-                        
-                        showToast('PDF Processing Result', message, successCount > 0 ? 'success' : 'warning');
                     }
                 } catch (error) {
-                    console.error('Error uploading files:', error);
-                    loadingModal.hide();
-                    showToast('Error', error.message, 'danger');
-                } finally {
-                    // Reset form state
-                    uploadBtn.disabled = false;
+                    console.error('Error checking status:', error);
+                    
+                    // Count errors
+                    const errorCount = (checkProcessingStatus.errorCount || 0) + 1;
+                    checkProcessingStatus.errorCount = errorCount;
+                    
+                    // If we've been polling for over 30 seconds with errors, close modal
+                    const pollingDuration = Date.now() - startPollingTime;
+                    if (pollingDuration > 30000 || errorCount >= 5) { // 30 seconds or 5 consecutive errors
+                        console.warn(`Status checking has been failing (${errorCount} errors), closing modal`);
+                        handleProcessingComplete(true, "Processing status unknown, but likely completed");
+                    }
                 }
-            });
-            
-            // Drag and drop functionality
-            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-                dropArea.addEventListener(eventName, preventDefaults, false);
-            });
-            
-            function preventDefaults(e) {
-                e.preventDefault();
-                e.stopPropagation();
             }
             
-            ['dragenter', 'dragover'].forEach(eventName => {
-                dropArea.addEventListener(eventName, highlight, false);
-            });
-            
-            ['dragleave', 'drop'].forEach(eventName => {
-                dropArea.addEventListener(eventName, unhighlight, false);
-            });
-            
-            function highlight() {
-                dropArea.classList.add('bg-light');
-            }
-            
-            function unhighlight() {
-                dropArea.classList.remove('bg-light');
-            }
-            
-            dropArea.addEventListener('drop', handleDrop, false);
-            
-            function handleDrop(e) {
-                const dt = e.dataTransfer;
-                const files = dt.files;
-                
-                if (files.length) {
-                    // FileList is not directly assignable, need to use DataTransfer
-                    const dataTransfer = new DataTransfer();
-                    
-                    // Filter for PDF files
-                    let pdfCount = 0;
-                    for (let i = 0; i < files.length; i++) {
-                        if (files[i].type === 'application/pdf') {
-                            dataTransfer.items.add(files[i]);
-                            pdfCount++;
-                        }
+            // Update the stopUploadProcess function to use safeCloseModal
+            window.stopUploadProcess = async function() {
+                try {
+                    if (!uploadClientId) {
+                        console.log("No active upload to cancel");
+                        return;
                     }
                     
-                    if (pdfCount > 0) {
-                        fileInput.files = dataTransfer.files;
-                        if (pdfCount < files.length) {
-                            showToast('File Selection', `Added ${pdfCount} PDF files. ${files.length - pdfCount} non-PDF files were ignored.`, 'info');
-                        } else {
-                            showToast('File Selection', `${pdfCount} PDF files ready to upload`, 'info');
-                        }
+                    console.log(`Stopping upload for client ID: ${uploadClientId}`);
+                    
+                    // Disable the stop button and update its text
+                    const stopBtn = document.getElementById('stopUploadBtn');
+                    if (stopBtn) {
+                        stopBtn.disabled = true;
+                        stopBtn.textContent = 'Stopping...';
+                    }
+                    
+                    // Call the cancel endpoint
+                    const response = await fetch(`/api/pdf/cancel/${uploadClientId}`, {
+                        method: 'POST'
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        console.log('Upload cancelled:', result);
+                        showToast('Upload Stopped', 'The upload process has been cancelled.', 'warning');
+                        
+                        // Use safe close method
+                        safeCloseModal();
                     } else {
-                        showToast('Error', 'No PDF files found in the dropped files. Only PDF files are supported.', 'danger');
+                        console.error('Failed to cancel upload:', response.statusText);
+                        showErrorToast('Error', 'Failed to cancel the upload. It may continue in the background.');
+                        
+                        // Re-enable the stop button
+                        if (stopBtn) {
+                            stopBtn.disabled = false;
+                            stopBtn.textContent = 'Stop Upload';
+                        }
                     }
+                } catch (error) {
+                    console.error('Error cancelling upload:', error);
+                    showErrorToast('Error', 'An error occurred while trying to cancel the upload.');
+                }
+            };
+            
+            // Function to update the progress UI
+            function updateProgressUI(data) {
+                if (!processingStatus || !processingProgress || !fileCounter) {
+                    console.error('Missing UI elements for progress updates');
+                    return;
+                }
+                
+                // Update progress message
+                if (data.message) {
+                    processingStatus.textContent = data.message;
+                }
+                
+                // Update progress bar if percentage is available
+                if (data.percentComplete !== undefined) {
+                    const percent = Math.min(Math.max(data.percentComplete, 0), 100);
+                    processingProgress.style.width = `${percent}%`;
+                    processingProgress.setAttribute('aria-valuenow', percent);
+                }
+                
+                // Update file counter
+                if (data.totalFiles !== undefined || data.filesProcessed !== undefined) {
+                    totalFiles = data.totalFiles !== undefined ? data.totalFiles : totalFiles;
+                    currentFiles = data.filesProcessed !== undefined ? data.filesProcessed : currentFiles;
+                    
+                    fileCounter.textContent = `Files: ${currentFiles} / ${totalFiles || 'calculating...'}`;
                 }
             }
 
+            // Start polling for status updates
+            function startStatusPolling(clientId) {
+                // Store the client ID globally
+                uploadClientId = clientId;
+                startPollingTime = Date.now();
+                
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                }
+                
+                // Initial status check
+                checkProcessingStatus(clientId);
+                
+                // Set up regular polling
+                pollingInterval = setInterval(() => {
+                    checkProcessingStatus(clientId);
+                }, 1000); // Poll every second
+            }
+            
+            // Main upload processing logic
+            try {
+                // Disable button and show loading state
+                uploadBtn.disabled = true;
+                loadingSpinner.classList.remove('d-none');
+                btnText.textContent = 'Processing...';
+                
+                // Get form data
+                const form = document.getElementById('uploadForm');
+                if (!form) {
+                    throw new Error("Upload form not found in DOM");
+                }
+                
+                const formData = new FormData(form);
+                
+                // Get selected input type (file or folder)
+                const inputTypeEl = document.querySelector('input[name="inputType"]:checked');
+                if (!inputTypeEl) {
+                    throw new Error("Please select an input type (file or folder)");
+                }
+                const inputType = inputTypeEl.value;
+                
+                // Get file type if available
+                const fileTypeEl = document.querySelector('input[name="fileType"]:checked');
+                const fileType = fileTypeEl ? fileTypeEl.value : 'auto';
+                
+                // Initialize progress indicators
+                fileCounter.textContent = 'Files Found: calculating...';
+                processingStatus.textContent = 'Starting processing...';
+                processingProgress.style.width = '0%';
+                processingProgress.setAttribute('aria-valuenow', 0);
+                
+                // Show loading modal
+                loadingModal.show();
+                
+                // Clear any existing polling
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                }
+                
+                // Generate a unique client ID for this upload
+                const clientId = 'upload-' + Date.now();
+                
+                let response;
+                if (inputType === 'file') {
+                    // Handle file upload - direct multipart submission
+                    response = await fetch('/api/pdf/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                } else {
+                    // Handle folder path submission
+                    const folderPathEl = document.getElementById('folderPath');
+                    if (!folderPathEl) {
+                        throw new Error("Folder path input not found in DOM");
+                    }
+                    
+                    const folderPath = folderPathEl.value;
+                    
+                    // Validate folder path
+                    if (!folderPath) {
+                        showErrorToast('Error', 'Please enter a folder path');
+                        resetFormState();
+                        loadingModal.hide();
+                        return;
+                    }
+                    
+                    response = await fetch('/api/pdf/upload/folder', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            folderPath: folderPath,
+                            clientId: clientId
+                        })
+                    });
+                }
+                
+                // Check response status
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Upload error:', errorText);
+                    handleProcessingComplete(false, errorText || response.statusText);
+                    return;
+                }
+                
+                // Parse JSON response
+                const data = await response.json();
+                console.log('Upload response:', data);
+                
+                if (data.success && data.clientId) {
+                    // Start polling for status updates
+                    startStatusPolling(data.clientId);
+                } else if (!data.success) {
+                    handleProcessingComplete(false, data.error || 'Unknown error processing files');
+                }
+            } catch (error) {
+                console.error('Error submitting form:', error);
+                handleProcessingComplete(false, error.message || 'Error processing files');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Document loaded, initializing application...');
+            
+            // Check that the form exists
+            if (!document.getElementById('uploadForm')) {
+                console.error("CRITICAL ERROR: Upload form not found! The form with ID 'uploadForm' does not exist in the DOM.");
+                return;
+            }
+            
+            console.log("Upload form found:", document.getElementById('uploadForm'));
+            
+            // DOM elements
+            const uploadForm = document.getElementById('uploadForm');
+            const fileInput = document.getElementById('fileInput');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const dropArea = document.getElementById('dropArea');
+            const loadingSpinner = document.getElementById('loadingSpinner');
+            const btnText = document.getElementById('btnText');
+            const refreshStatsButton = document.getElementById('refreshStatsButton');
+            const entityList = document.getElementById('entityList');
+            const totalEntities = document.getElementById('totalEntities');
+            const totalRelationships = document.getElementById('totalRelationships');
+            const entityTypesList = document.getElementById('entityTypesList');
+            const entitySearchInput = document.getElementById('entitySearchInput');
+            const entitySearchButton = document.getElementById('entitySearchButton');
+            const graphContainer = document.getElementById('graphContainer');
+            const entityModal = new bootstrap.Modal(document.getElementById('entityModal'));
+            
+            // File tracking elements
+            const processedFilesTable = document.getElementById('processedFilesTable');
+            const refreshTrackingBtn = document.getElementById('refreshTrackingBtn');
+            const clearTrackingBtn = document.getElementById('clearTrackingBtn');
+            const browseFolderBtn = document.getElementById('browseFolderBtn');
+            const folderPath = document.getElementById('folderPath');
+            
+            // Load processed files on tab selection
+            document.getElementById('tracking-tab').addEventListener('click', loadProcessedFiles);
+            
+            // Add click handlers for file tracking
+            refreshTrackingBtn.addEventListener('click', loadProcessedFiles);
+            clearTrackingBtn.addEventListener('click', clearFileTracking);
+            
+            // Handle folder browsing (this requires additional native file access API)
+            browseFolderBtn.addEventListener('click', async function() {
+                // Folder selection via browser API doesn't work with Node.js server
+                // because the server needs the full system path
+                let folderPathInput = '';
+                
+                try {
+                    // Modern browsers may support directory picker
+                    if (window.showDirectoryPicker) {
+                        try {
+                            console.log("Using modern directory picker API");
+                            const dirHandle = await window.showDirectoryPicker();
+                            // Just get the name of the directory
+                            folderPathInput = dirHandle.name;
+                            
+                            // Get the user's platform
+                            const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+                            const isWindows = navigator.platform.toUpperCase().indexOf('WIN') >= 0;
+                            
+                            let placeholder = '';
+                            if (isMac) {
+                                placeholder = `/Users/username/Documents/${dirHandle.name}`;
+                            } else if (isWindows) {
+                                placeholder = `C:\\Users\\username\\Documents\\${dirHandle.name}`;
+                            } else {
+                                placeholder = `/home/username/Documents/${dirHandle.name}`;
+                            }
+                            
+                            // Inform user they need to provide the full path
+                            folderPathInput = prompt(`You selected: "${dirHandle.name}"
+                            
+You need to provide the COMPLETE absolute path to this folder on the server:`, placeholder);
+                        } catch (e) {
+                            console.log("Directory picker failed:", e);
+                            // Fallback to prompt if user cancels or browser doesn't fully support
+                            folderPathInput = prompt('Enter the complete absolute folder path that the server can access (e.g., /Users/username/Documents/PDFs):', '');
+                        }
+                    } else {
+                        // Fallback for browsers without directory picker
+                        folderPathInput = prompt('Enter the complete absolute folder path that the server can access (e.g., /Users/username/Documents/PDFs):', '');
+                    }
+                } catch (e) {
+                    console.error("Error in folder selection:", e);
+                    folderPathInput = prompt('Enter the complete absolute folder path that the server can access (e.g., /Users/username/Documents/PDFs):', '');
+                }
+                
+                if (folderPathInput) {
+                    // Sanitize the input path
+                    folderPathInput = folderPathInput.trim();
+                    
+                    // Add simple path validation
+                    const isValidPath = /^(\/|[a-zA-Z]:\\)/.test(folderPathInput);
+                    
+                    if (!isValidPath) {
+                        showToast('Warning', 'The path you entered may not be valid. It should start with / (Unix/Mac) or C:\\ (Windows)', 'warning');
+                    }
+                    
+                    folderPath.value = folderPathInput;
+                    showToast('Folder Path Set', `Folder path set to: ${folderPathInput}`, 'info');
+                    
+                    // Add instruction about PDF/Word files
+                    showToast('Important', 'Make sure this path contains PDF or Word files and exists on the server', 'warning');
+                }
+            });
+            
+            // Load the list of processed files
+            async function loadProcessedFiles() {
+                try {
+                    processedFilesTable.innerHTML = '<tr><td colspan="3" class="text-center"><div class="spinner-border spinner-border-sm text-primary" role="status"></div> Loading...</td></tr>';
+                    
+                    const response = await fetch('/api/pdf/processed-files');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        if (data.files && data.files.length > 0) {
+                            const sortedFiles = data.files.sort((a, b) => 
+                                new Date(b.processedAt) - new Date(a.processedAt)
+                            );
+                            
+                            let tableHtml = '';
+                            sortedFiles.forEach(file => {
+                                const date = new Date(file.processedAt).toLocaleString();
+                                const statusClass = file.status === 'processed' ? 'text-success' : 'text-danger';
+                                const statusText = file.status === 'processed' ? 'Success' : 'Failed';
+                                
+                                tableHtml += `
+                                    <tr>
+                                        <td title="${file.filePath}">${file.originalName}</td>
+                                        <td class="${statusClass}">${statusText}</td>
+                                        <td>${date}</td>
+                                    </tr>
+                                `;
+                            });
+                            
+                            processedFilesTable.innerHTML = tableHtml;
+                        } else {
+                            processedFilesTable.innerHTML = '<tr><td colspan="3" class="text-center">No processed files found</td></tr>';
+                        }
+                    } else {
+                        throw new Error(data.error || 'Failed to load processed files');
+                    }
+                } catch (error) {
+                    console.error('Error loading processed files:', error);
+                    processedFilesTable.innerHTML = `<tr><td colspan="3" class="text-center text-danger">Error: ${error.message}</td></tr>`;
+                }
+            }
+            
+            // Clear all file tracking records
+            async function clearFileTracking() {
+                if (!confirm('Are you sure you want to clear all file tracking records? This will allow previously processed files to be reprocessed.')) {
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/api/pdf/clear-tracking', {
+                        method: 'POST'
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        showToast('Success', data.message, 'success');
+                        loadProcessedFiles(); // Refresh the table
+                    } else {
+                        throw new Error(data.error || 'Failed to clear tracking records');
+                    }
+                } catch (error) {
+                    console.error('Error clearing tracking records:', error);
+                    showToast('Error', error.message, 'danger');
+                }
+            }
+            
             // Load most recent entities
             async function loadLatestEntities() {
                 try {
@@ -1153,33 +1656,19 @@
                 }
             }
 
-            // Toast notification function
-            function showToast(title, message, type = 'info') {
-                const toast = document.getElementById('notificationToast');
-                const toastTitle = document.getElementById('toastTitle');
-                const toastMessage = document.getElementById('toastMessage');
-                const toastTime = document.getElementById('toastTime');
-                
-                // Set toast content
-                toastTitle.textContent = title;
-                toastMessage.textContent = message;
-                toastTime.textContent = new Date().toLocaleTimeString();
-                
-                // Set toast styling based on type
-                toast.classList.remove('bg-success', 'bg-danger', 'bg-warning', 'bg-info', 'text-white');
-                if (type === 'success') {
-                    toast.classList.add('bg-success', 'text-white');
-                } else if (type === 'danger') {
-                    toast.classList.add('bg-danger', 'text-white');
-                } else if (type === 'warning') {
-                    toast.classList.add('bg-warning');
-                } else {
-                    toast.classList.add('bg-info', 'text-white');
-                }
-                
-                // Show the toast
-                const bsToast = new bootstrap.Toast(toast);
-                bsToast.show();
+            // Set up tab change listeners to update the hidden input type radios
+            document.getElementById('files-tab').addEventListener('click', function() {
+                document.getElementById('inputTypeFile').checked = true;
+            });
+
+            document.getElementById('folder-tab').addEventListener('click', function() {
+                document.getElementById('inputTypeFolder').checked = true;
+            });
+
+            // Add event listener for the stop upload button
+            const stopUploadBtn = document.getElementById('stopUploadBtn');
+            if (stopUploadBtn) {
+                stopUploadBtn.addEventListener('click', stopUploadProcess);
             }
         });
     </script>

@@ -159,7 +159,13 @@ class Neo4jService {
      * @returns {Promise<object>} - Results with counts of nodes created
      */
     async saveEntities(entities) {
-        const session = this.driver.session();
+        if (!entities || entities.length === 0) {
+            console.log('No entities to save');
+            return { created: 0, merged: 0, errors: 0, ids: [] };
+        }
+
+        let session = null;
+        let tx = null;
         try {
             console.time('save-entities');
             let created = 0;
@@ -168,7 +174,7 @@ class Neo4jService {
             const savedIds = [];
 
             // Process entities in larger batches for better performance
-            const batchSize = 200; // Increased from 50 to 200
+            const batchSize = 100; // Reduced from 200 to 100 for better reliability
             console.log(`Saving ${entities.length} entities in batches of ${batchSize}`);
             
             // Prepare batches
@@ -182,6 +188,11 @@ class Neo4jService {
             for (const batch of batches) {
                 batchIndex++;
                 console.time(`entity-batch-${batchIndex}`);
+                
+                // Create a new session and transaction for each batch
+                if (session) await session.close();
+                session = this.driver.session();
+                tx = session.beginTransaction();
                 
                 try {
                     // Prepare parameters for the batch
@@ -225,7 +236,7 @@ class Neo4jService {
                         RETURN e.id as id, e.created as created
                     `;
                     
-                    const result = await session.run(query, batchParams);
+                    const result = await tx.run(query, batchParams);
                     
                     // Count created vs merged entities
                     result.records.forEach(record => {
@@ -237,15 +248,50 @@ class Neo4jService {
                         }
                     });
                     
+                    // Explicitly commit the transaction
+                    await tx.commit();
+                    tx = null;
+                    
                     console.log(`Batch ${batchIndex}/${batches.length}: Processed ${batch.length} entities (${created} created, ${merged} merged)`);
+                    
+                    // Verify entities are visible by querying one
+                    if (batch.length > 0) {
+                        const verifySession = this.driver.session();
+                        try {
+                            const verifyResult = await verifySession.run(
+                                'MATCH (e:Entity {id: $id}) RETURN e.id',
+                                { id: batch[0].id }
+                            );
+                            console.log(`Verified entity visibility: ${verifyResult.records.length > 0 ? 'Success' : 'Failed'}`);
+                        } catch (verifyErr) {
+                            console.error('Error verifying entity visibility:', verifyErr);
+                        } finally {
+                            await verifySession.close();
+                        }
+                    }
                 } catch (error) {
                     console.error(`Error processing entity batch ${batchIndex}:`, error);
+                    
+                    // Rollback the transaction if it exists
+                    if (tx) {
+                        try {
+                            await tx.rollback();
+                            tx = null;
+                        } catch (rollbackError) {
+                            console.error('Error rolling back transaction:', rollbackError);
+                        }
+                    }
+                    
                     errors += batch.length;
                     
                     // Fall back to individual entity processing if batch fails
                     console.log('Falling back to individual entity processing...');
                     for (const entity of batch) {
                         try {
+                            // Create a new session for each entity
+                            const individualSession = this.driver.session();
+                            const individualTx = individualSession.beginTransaction();
+                            
                             // Create Cypher parameters with Neo4j-compatible format
                             const params = this._toNeo4jFormat({
                                 id: entity.id,
@@ -284,7 +330,10 @@ class Neo4jService {
                                 RETURN e.created as created, e.id as id
                             `;
                             
-                            const result = await session.run(query, params);
+                            const result = await individualTx.run(query, params);
+                            
+                            // Commit each individual transaction
+                            await individualTx.commit();
                             
                             if (result.records.length > 0) {
                                 savedIds.push(result.records[0].get('id'));
@@ -294,6 +343,8 @@ class Neo4jService {
                                     merged++;
                                 }
                             }
+                            
+                            await individualSession.close();
                         } catch (innerError) {
                             console.error(`Error saving entity ${entity.name}:`, innerError);
                             errors++;
@@ -311,7 +362,19 @@ class Neo4jService {
             console.error('Error saving entities to Neo4j:', error);
             throw error;
         } finally {
-            await session.close();
+            // Clean up transaction if it still exists
+            if (tx) {
+                try {
+                    await tx.rollback();
+                } catch (rollbackError) {
+                    console.error('Error rolling back transaction:', rollbackError);
+                }
+            }
+            
+            // Always close the session
+            if (session) {
+                await session.close();
+            }
         }
     }
 
@@ -372,7 +435,13 @@ class Neo4jService {
      * @returns {Promise<object>} - Results with counts of relationships created
      */
     async saveRelationships(relationships) {
-        const session = this.driver.session();
+        if (!relationships || relationships.length === 0) {
+            console.log('No relationships to save');
+            return { created: 0, merged: 0, skipped: 0, errors: 0 };
+        }
+        
+        let session = null;
+        let tx = null;
         try {
             console.time('save-relationships');
             let created = 0;
@@ -428,8 +497,8 @@ class Neo4jService {
             
             console.log(`After filtering: ${validRelationships.length} valid relationships, ${skipped} skipped`);
             
-            // Step 2: Process relationships in larger batches for better performance
-            const batchSize = 200; // Increased from 50 to 200
+            // Step 2: Process relationships in batches for better performance
+            const batchSize = 100; // Reduced from 200 to 100 for better reliability
             console.log(`Processing relationships in batches of ${batchSize}`);
             
             // Prepare batches
@@ -445,120 +514,62 @@ class Neo4jService {
                 console.time(`relationship-batch-${batchIndex}`);
                 console.log(`Processing relationship batch ${batchIndex}/${batches.length} (${batch.length} relationships)`);
                 
+                // Create a new session and transaction for each batch
+                if (session) await session.close();
+                session = this.driver.session();
+                tx = session.beginTransaction();
+                
                 try {
-                    // Prepare batch parameters
-                    const batchParams = {
-                        relationships: batch.map(rel => {
-                            // Generate a unique ID for the relationship if not present
-                            const relId = rel.id || uuidv4();
-                            
-                            // Create the parameter object
-                            const params = {
+                    // Process each relationship type separately
+                    const relationshipTypes = new Set(batch.map(rel => rel.type.toUpperCase()));
+                    const typeBatchResults = [];
+                    
+                    for (const type of relationshipTypes) {
+                        const typeRelationships = batch.filter(rel => rel.type.toUpperCase() === type);
+                        
+                        // Fallback query without APOC for this specific type - this is more reliable
+                        const fallbackQuery = `
+                            UNWIND $relationships AS rel
+                            MATCH (source:Entity {id: rel.sourceId})
+                            MATCH (target:Entity {id: rel.targetId})
+                            MERGE (source)-[r:${type} {id: rel.relId}]->(target)
+                            ON CREATE SET 
+                                r.created_at = datetime(),
+                                r.evidence = rel.evidence,
+                                r.confidence = rel.confidence,
+                                r.metadata = rel.metadata,
+                                r.created = true
+                            ON MATCH SET 
+                                r.evidence = rel.evidence,
+                                r.confidence = rel.confidence,
+                                r.metadata = rel.metadata,
+                                r.updated_at = datetime(),
+                                r.updated = true
+                            RETURN r.id as id, r.created as created
+                        `;
+                        
+                        const typeParams = {
+                            relationships: typeRelationships.map(rel => ({
                                 sourceId: rel.source,
                                 targetId: rel.target,
-                                type: rel.type.toUpperCase(),
-                                relId,
+                                relId: rel.id || uuidv4(),
                                 evidence: rel.evidence || '',
                                 confidence: rel.confidence || 0.8,
                                 metadata: JSON.stringify(rel.metadata || {})
-                            };
-                            
-                            // Add date properties if present
-                            if (rel.date) params.date = rel.date;
-                            if (rel.start_date) params.start_date = rel.start_date;
-                            if (rel.end_date) params.end_date = rel.end_date;
-                            
-                            return params;
-                        })
-                    };
-                    
-                    // Create a single transaction for the entire batch using UNWIND
-                    const query = `
-                        UNWIND $relationships AS rel
-                        MATCH (source:Entity {id: rel.sourceId})
-                        MATCH (target:Entity {id: rel.targetId})
-                        CALL apoc.merge.relationship(
-                            source, 
-                            rel.type, 
-                            {id: rel.relId}, 
-                            {
-                                evidence: rel.evidence,
-                                confidence: rel.confidence,
-                                metadata: rel.metadata,
-                                created_at: datetime()
-                            },
-                            target,
-                            {
-                                evidence: rel.evidence,
-                                confidence: rel.confidence,
-                                metadata: rel.metadata,
-                                updated_at: datetime()
-                            }
-                        )
-                        YIELD rel as r
-                        RETURN r.id as id, r.created as created
-                    `;
-                    
-                    // If APOC is not available, use a fallback query
-                    let result;
-                    try {
-                        result = await session.run(query, batchParams);
-                    } catch (apocError) {
-                        console.log('APOC might not be available, using fallback query');
+                            }))
+                        };
                         
-                        // Process each relationship type separately
-                        const relationshipTypes = new Set(batch.map(rel => rel.type.toUpperCase()));
-                        const typeBatchResults = [];
-                        
-                        for (const type of relationshipTypes) {
-                            const typeRelationships = batch.filter(rel => rel.type.toUpperCase() === type);
-                            
-                            // Fallback query without APOC for this specific type
-                            const fallbackQuery = `
-                                UNWIND $relationships AS rel
-                                MATCH (source:Entity {id: rel.sourceId})
-                                MATCH (target:Entity {id: rel.targetId})
-                                MERGE (source)-[r:${type} {id: rel.relId}]->(target)
-                                ON CREATE SET 
-                                    r.created_at = datetime(),
-                                    r.evidence = rel.evidence,
-                                    r.confidence = rel.confidence,
-                                    r.metadata = rel.metadata,
-                                    r.created = true
-                                ON MATCH SET 
-                                    r.evidence = rel.evidence,
-                                    r.confidence = rel.confidence,
-                                    r.metadata = rel.metadata,
-                                    r.updated_at = datetime(),
-                                    r.updated = true
-                                RETURN r.id as id, r.created as created
-                            `;
-                            
-                            const typeParams = {
-                                relationships: typeRelationships.map(rel => ({
-                                    sourceId: rel.source,
-                                    targetId: rel.target,
-                                    relId: rel.id || uuidv4(),
-                                    evidence: rel.evidence || '',
-                                    confidence: rel.confidence || 0.8,
-                                    metadata: JSON.stringify(rel.metadata || {})
-                                }))
-                            };
-                            
-                            try {
-                                const typeResult = await session.run(fallbackQuery, typeParams);
-                                typeBatchResults.push(...typeResult.records);
-                            } catch (typeError) {
-                                console.error(`Error processing relationships of type ${type}:`, typeError);
-                                errors += typeRelationships.length;
-                            }
+                        try {
+                            const typeResult = await tx.run(fallbackQuery, typeParams);
+                            typeBatchResults.push(...typeResult.records);
+                        } catch (typeError) {
+                            console.error(`Error processing relationships of type ${type}:`, typeError);
+                            errors += typeRelationships.length;
                         }
-                        
-                        result = { records: typeBatchResults };
                     }
                     
                     // Count created vs merged relationships
-                    result.records.forEach(record => {
+                    typeBatchResults.forEach(record => {
                         if (record.get('created') === true) {
                             created++;
                         } else {
@@ -566,108 +577,49 @@ class Neo4jService {
                         }
                     });
                     
+                    // Commit the transaction for all relationship types
+                    await tx.commit();
+                    tx = null;
+                    
                     console.log(`Batch ${batchIndex}: Processed ${batch.length} relationships (${created} created, ${merged} merged)`);
+                    
+                    // Verify that relationships are visible
+                    if (batch.length > 0) {
+                        const verifySession = this.driver.session();
+                        try {
+                            const verifyResult = await verifySession.run(
+                                'MATCH ()-[r {id: $id}]->() RETURN r.id',
+                                { id: batch[0].id || typeBatchResults[0]?.get('id') }
+                            );
+                            console.log(`Verified relationship visibility: ${verifyResult.records.length > 0 ? 'Success' : 'Failed'}`);
+                        } catch (verifyErr) {
+                            console.error('Error verifying relationship visibility:', verifyErr);
+                        } finally {
+                            await verifySession.close();
+                        }
+                    }
                 } catch (error) {
                     console.error(`Error processing relationship batch ${batchIndex}:`, error);
                     
-                    // Fall back to individual relationship processing if batch fails
-                    console.log('Falling back to individual relationship processing...');
-                    
-                    for (const rel of batch) {
+                    // Rollback the transaction if it exists
+                    if (tx) {
                         try {
-                            // Generate a unique ID for the relationship if not present
-                            const relId = rel.id || uuidv4();
-                            
-                            // Handle potential date properties for temporal relationships
-                            let dateProperties = {};
-                            if (rel.date) {
-                                dateProperties.date = rel.date;
-                            }
-                            if (rel.start_date) {
-                                dateProperties.start_date = rel.start_date;
-                            }
-                            if (rel.end_date) {
-                                dateProperties.end_date = rel.end_date;
-                            }
-                            
-                            // Create Cypher parameters with Neo4j-compatible format
-                            const params = this._toNeo4jFormat({
-                                sourceId: rel.source,
-                                targetId: rel.target,
-                                type: rel.type.toUpperCase(),
-                                relId,
-                                evidence: rel.evidence || '',
-                                confidence: rel.confidence || 0.8,
-                                metadata: rel.metadata || {},
-                                ...dateProperties
-                            });
-
-                            // Build property string for relationship creation
-                            const createProperties = [
-                                'id: $relId',
-                                'created_at: datetime()',
-                                'evidence: $evidence',
-                                'confidence: $confidence',
-                                'metadata: $metadata'
-                            ];
-                            
-                            // Build property string for relationship updates (merging)
-                            const updateProperties = [
-                                'evidence: $evidence',
-                                'confidence: $confidence',
-                                'metadata: $metadata',
-                                'updated_at: datetime()'
-                            ];
-                            
-                            // Add date properties if present
-                            if (rel.date) {
-                                createProperties.push('date: $date');
-                                updateProperties.push('date: $date');
-                            }
-                            if (rel.start_date) {
-                                createProperties.push('start_date: $start_date');
-                                updateProperties.push('start_date: $start_date');
-                            }
-                            if (rel.end_date) {
-                                createProperties.push('end_date: $end_date');
-                                updateProperties.push('end_date: $end_date');
-                            }
-                            
-                            const createPropertiesString = createProperties.join(', ');
-                            const updatePropertiesString = updateProperties.join(', ');
-
-                            // Use MERGE instead of CREATE to avoid duplicating relationships
-                            const query = `
-                                MATCH (source:Entity {id: $sourceId})
-                                MATCH (target:Entity {id: $targetId})
-                                MERGE (source)-[r:${params.type}]->(target)
-                                ON CREATE SET r = {${createPropertiesString}}
-                                ON MATCH SET r = {${updatePropertiesString}}
-                                RETURN r, r.id as relId
-                            `;
-                            
-                            const result = await session.run(query, params);
-                            if (result.records.length > 0) {
-                                // Check if the relationship already existed
-                                if (result.records[0].get('relId') === relId) {
-                                    created++;
-                                } else {
-                                    merged++;
-                                }
-                            }
-                        } catch (innerError) {
-                            console.error(`Error saving relationship from ${rel.source} to ${rel.target}:`, innerError);
-                            errors++;
+                            await tx.rollback();
+                            tx = null;
+                        } catch (rollbackError) {
+                            console.error('Error rolling back transaction:', rollbackError);
                         }
                     }
+                    
+                    errors += batch.length;
                 }
                 
                 console.timeEnd(`relationship-batch-${batchIndex}`);
             }
-
+            
             console.timeEnd('save-relationships');
             console.log(`Relationship processing results:
-- Total: ${relationships.length}
+- Total: ${validRelationships.length}
 - Created: ${created}
 - Merged: ${merged}
 - Skipped: ${skipped}
@@ -678,7 +630,19 @@ class Neo4jService {
             console.error('Error saving relationships to Neo4j:', error);
             throw error;
         } finally {
-            await session.close();
+            // Clean up transaction if it still exists
+            if (tx) {
+                try {
+                    await tx.rollback();
+                } catch (rollbackError) {
+                    console.error('Error rolling back transaction:', rollbackError);
+                }
+            }
+            
+            // Always close the session
+            if (session) {
+                await session.close();
+            }
         }
     }
 
