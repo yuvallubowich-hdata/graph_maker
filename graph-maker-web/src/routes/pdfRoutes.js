@@ -420,7 +420,7 @@ router.post('/upload', fileFields, async (req, res) => {
             console.warn(`Progress ID ${progressId} provided but no active connection found in uploadProgressMap`);
             console.log(`Current progress IDs in map: ${Array.from(uploadProgressMap.keys()).join(', ')}`);
         }
-        
+
         // Get processing options from request
         const options = {
             parallelProcessing: req.body.parallelProcessing === 'true',
@@ -698,8 +698,8 @@ router.post('/upload', fileFields, async (req, res) => {
             }
             
             try {
-                const result = await graphProcessorService.processPDF(file.path, file.originalname, options);
-                
+        const result = await graphProcessorService.processPDF(file.path, file.originalname, options);
+
                 // Record successful processing
                 fileTrackingService.recordFile(
                     file.path,
@@ -710,12 +710,12 @@ router.post('/upload', fileFields, async (req, res) => {
                 );
                 
                 results.push({
-                    file: {
-                        name: file.originalname,
-                        path: file.path,
-                        size: file.size
-                    },
-                    results: result,
+            file: {
+                name: file.originalname,
+                path: file.path,
+                size: file.size
+            },
+            results: result,
                     success: true
                 });
             } catch (error) {
@@ -1189,4 +1189,4 @@ router.post('/cancel/:clientId', (req, res) => {
 });
 
 // Export the router
-module.exports = router;
+module.exports = router; 

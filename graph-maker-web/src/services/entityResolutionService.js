@@ -7,12 +7,13 @@
  * - Maintaining canonical entities and aliases
  * - Scoring entity matches for confidence
  */
+const { v4: uuidv4 } = require('uuid');
+
 class EntityResolutionService {
     constructor() {
         this.canonicalEntities = new Map(); // Map of ID to canonical entity
         this.entityIndex = new Map(); // Map of normalized name to canonical entity ID
         this.aliasMap = new Map(); // Map of alias to canonical entity ID
-        this.nextEntityId = 1; // Counter for generating unique entity IDs
     }
 
     /**
@@ -22,7 +23,6 @@ class EntityResolutionService {
         this.canonicalEntities.clear();
         this.entityIndex.clear();
         this.aliasMap.clear();
-        this.nextEntityId = 1;
     }
 
     /**
@@ -68,8 +68,8 @@ class EntityResolutionService {
             
             return updatedEntity;
         } else {
-            // Create a new canonical entity
-            const entityId = `entity_${this.nextEntityId++}`;
+            // Create a new canonical entity with UUID
+            const entityId = `entity_${uuidv4()}`;
             
             const canonicalEntity = {
                 id: entityId,
@@ -226,61 +226,42 @@ class EntityResolutionService {
     /**
      * Normalize a string for comparison
      * @private
-     * @param {string} str - The string to normalize
-     * @returns {string} - The normalized string
+     * @param {string} str - String to normalize
+     * @returns {string} - Normalized string
      */
     _normalizeString(str) {
         if (!str) return '';
         
-        // Convert to lowercase and trim
-        let normalized = str.toLowerCase().trim();
+        // Convert to lowercase
+        let normalized = str.toLowerCase();
         
-        // Replace multiple spaces with a single space
-        normalized = normalized.replace(/\s+/g, ' ');
-        
-        // Remove common punctuation and special characters
-        normalized = normalized.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, ' ');
-        
-        // Remove common business entity suffixes
-        const suffixes = [
-            'inc', 'llc', 'ltd', 'limited', 'corp', 'corporation', 'company', 
-            'co', 'group', 'holdings', 'services', 'systems', 'technologies', 
-            'solutions', 'international', 'usa', 'association', 'foundation',
-            'l.l.c.', 'l.p.', 'lp', 'plc'
-        ];
-        
-        suffixes.forEach(suffix => {
-            // Remove suffix if it appears at the end of the string
-            const suffixPattern = new RegExp(`\\s${suffix}\\b$`, 'i');
-            normalized = normalized.replace(suffixPattern, '');
-        });
-        
-        // Normalize common abbreviations
-        const abbreviations = {
-            'dept': 'department',
-            'univ': 'university',
-            'assn': 'association',
-            'assoc': 'association',
-            'natl': 'national',
-            'intl': 'international',
-            'dev': 'development',
-            'govt': 'government',
-            'tech': 'technology',
-            'mgmt': 'management'
-        };
-        
-        for (const [abbr, full] of Object.entries(abbreviations)) {
-            const abbrPattern = new RegExp(`\\b${abbr}\\b`, 'ig');
-            normalized = normalized.replace(abbrPattern, full);
+        // Remove common prefixes that don't significantly affect meaning
+        const prefixes = ['the ', 'a ', 'an '];
+        for (const prefix of prefixes) {
+            if (normalized.startsWith(prefix)) {
+                normalized = normalized.slice(prefix.length);
+                break;
+            }
         }
         
-        // Remove common words that don't contribute to entity identity
-        const commonWords = ['the', 'of', 'and', 'a', 'an', 'in', 'on', 'at', 'by', 'for', 'with'];
-        const normalizedWords = normalized.split(' ').filter(word => !commonWords.includes(word));
-        normalized = normalizedWords.join(' ');
+        // Remove common company suffixes
+        const companySuffixes = [
+            ' inc', ' llc', ' corporation', ' corp', ' company', ' co', 
+            ' limited', ' ltd', ' group', ' holdings', ' gmbh', ' ag'
+        ];
+        for (const suffix of companySuffixes) {
+            if (normalized.endsWith(suffix)) {
+                normalized = normalized.slice(0, -suffix.length);
+                break;
+            }
+        }
         
-        // Trim again after all replacements
-        return normalized.trim();
+        // Remove special characters and extra whitespace
+        normalized = normalized.replace(/[^\w\s]/g, ' ') // Replace special chars with space
+                              .replace(/\s+/g, ' ')      // Replace multiple spaces with a single space
+                              .trim();                    // Remove leading/trailing spaces
+                              
+        return normalized;
     }
 
     /**
@@ -356,8 +337,8 @@ class EntityResolutionService {
             return substringMatches[0];
         }
         
-        // Otherwise, try fuzzy matching
-        let bestScore = 0.8; // Threshold for considering a match
+        // Otherwise, try fuzzy matching with improved thresholds for merging
+        let bestScore = 0.65; // Reduced threshold from 0.8 to 0.65 to allow more merging
         let bestMatchId = null;
         
         for (const [candidateId, entity] of this.canonicalEntities.entries()) {
@@ -367,20 +348,66 @@ class EntityResolutionService {
             }
             
             const candidateName = this._normalizeString(entity.name);
+            
+            // Higher threshold for short names to avoid false positives
+            const minThreshold = candidateName.length < 5 ? 0.85 : 0.65;
+            
+            // Check for word pattern matching (partial words in same order)
+            let patternScore = 0;
+            const normalizedWords = normalizedName.split(' ');
+            const candidateWords = candidateName.split(' ');
+            
+            // If one string is contained inside the other, boost the similarity
+            if (candidateName.includes(normalizedName) || normalizedName.includes(candidateName)) {
+                patternScore = 0.85; // High score for containment
+            } 
+            // If they share words in the same order, consider them similar
+            else if (normalizedWords.length > 1 && candidateWords.length > 1) {
+                let matchingWords = 0;
+                let lastMatchIndex = -1;
+                
+                for (const word of normalizedWords) {
+                    if (word.length < 3) continue; // Skip very short words
+                    
+                    for (let i = lastMatchIndex + 1; i < candidateWords.length; i++) {
+                        if (candidateWords[i].includes(word) || word.includes(candidateWords[i])) {
+                            matchingWords++;
+                            lastMatchIndex = i;
+                            break;
+                        }
+                    }
+                }
+                
+                const matchRatio = matchingWords / Math.min(normalizedWords.length, candidateWords.length);
+                patternScore = matchRatio > 0.6 ? 0.7 + (matchRatio * 0.2) : 0;
+            }
+            
+            // Direct string similarity using levenshtein distance
             const similarity = this._calculateStringSimilarity(normalizedName, candidateName);
             
-            if (similarity > bestScore) {
-                bestScore = similarity;
+            // Take the higher of the two scores
+            const finalScore = Math.max(similarity, patternScore);
+            
+            if (finalScore > bestScore && finalScore > minThreshold) {
+                bestScore = finalScore;
                 bestMatchId = candidateId;
             }
             
-            // Also check aliases
+            // Also check aliases with the same approach
             for (const alias of entity.aliases || []) {
                 const normalizedAlias = this._normalizeString(alias);
                 const aliasSimilarity = this._calculateStringSimilarity(normalizedName, normalizedAlias);
                 
-                if (aliasSimilarity > bestScore) {
-                    bestScore = aliasSimilarity;
+                let aliasPatternScore = 0;
+                // Check for containment
+                if (normalizedAlias.includes(normalizedName) || normalizedName.includes(normalizedAlias)) {
+                    aliasPatternScore = 0.85;
+                }
+                
+                const aliasFinalScore = Math.max(aliasSimilarity, aliasPatternScore);
+                
+                if (aliasFinalScore > bestScore && aliasFinalScore > minThreshold) {
+                    bestScore = aliasFinalScore;
                     bestMatchId = candidateId;
                 }
             }

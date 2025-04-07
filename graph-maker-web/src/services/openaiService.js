@@ -17,92 +17,92 @@ class OpenAIService {
         
         // Initialize ontology
         this.ontology = {
-            labels: [
-                "EnergyTechnology",      // e.g., Solar PV, Wind Turbine
-                "EnergyResource",        // e.g., Solar Radiation, Wind
-                "EnergyMarket",          // e.g., Electricity Market, Carbon Market
-                "EnergyPolicy",          // e.g., Renewable Energy Policy, Carbon Tax
-                "EnergyInfrastructure",  // e.g., Power Grid, Transmission Line
-                "EnergyConsumer",        // e.g., Industrial Facility, Residential Building
-                "EnergyProducer",        // e.g., Power Plant, Solar Farm
-                "EnergyStorage",         // e.g., Battery, Pumped Hydro
-                "EnergyRegulator",       // e.g., Energy Regulatory Authority
-                "EnergyServiceProvider", // e.g., Utility Company, Energy Retailer
-                "EnergyLocation",        // e.g., Power Plant Site, Grid Connection Point
-                "EnergyProject",         // e.g., Renewable Energy Project, Grid Upgrade
-                "EnergyData",            // e.g., Energy Consumption Data, Market Prices
-                "EnergySystem",          // e.g., Power System, Microgrid
-                "EnergyComponent",       // e.g., Inverter, Transformer
-                "BusinessEntity",        // e.g., Company, Organization
-                "LegalEntity",           // e.g., HOA, Government Agency
-                "Community",             // e.g., Residential Community, Industrial Park
-                "Agreement",             // e.g., Contract, Memorandum of Understanding
-                "Project",               // e.g., Development Project, Construction Project
-                "Location",              // e.g., Property, Site
-                "Asset",                 // e.g., Equipment, Facility
-                "Document",              // e.g., Report, Study
-                "Event"                  // e.g., Meeting, Hearing
-            ],
-            relationship_descriptor: "Relationships between entities in the energy sector, including technical, economic, regulatory, spatial, and business relationships",
-            relationship_types: [
-                // Technical Energy Relationships
-                "produces",              // EnergyProducer -> EnergyResource
-                "consumes",              // EnergyConsumer -> EnergyResource
-                "transmits",             // EnergyInfrastructure -> EnergyLocation
-                "distributes",           // EnergyInfrastructure -> EnergyConsumer
-                "stores",                // EnergyStorage -> EnergyResource
-                "generates",             // EnergyTechnology -> EnergyResource
-                "connects",              // EnergyInfrastructure -> EnergyInfrastructure
-                "composes",              // EnergySystem -> EnergyComponent
-                "locatedAt",             // EnergyTechnology -> EnergyLocation
+    labels: [
+        "EnergyTechnology",      // e.g., Solar PV, Wind Turbine
+        "EnergyResource",        // e.g., Solar Radiation, Wind
+        "EnergyMarket",          // e.g., Electricity Market, Carbon Market
+        "EnergyPolicy",          // e.g., Renewable Energy Policy, Carbon Tax
+        "EnergyInfrastructure",  // e.g., Power Grid, Transmission Line
+        "EnergyConsumer",        // e.g., Industrial Facility, Residential Building
+        "EnergyProducer",        // e.g., Power Plant, Solar Farm
+        "EnergyStorage",         // e.g., Battery, Pumped Hydro
+        "EnergyRegulator",       // e.g., Energy Regulatory Authority
+        "EnergyServiceProvider", // e.g., Utility Company, Energy Retailer
+        "EnergyLocation",        // e.g., Power Plant Site, Grid Connection Point
+        "EnergyProject",         // e.g., Renewable Energy Project, Grid Upgrade
+        "EnergyData",            // e.g., Energy Consumption Data, Market Prices
+        "EnergySystem",          // e.g., Power System, Microgrid
+        "EnergyComponent",       // e.g., Inverter, Transformer
+        "BusinessEntity",        // e.g., Company, Organization
+        "LegalEntity",           // e.g., HOA, Government Agency
+        "Community",             // e.g., Residential Community, Industrial Park
+        "Agreement",             // e.g., Contract, Memorandum of Understanding
+        "Project",               // e.g., Development Project, Construction Project
+        "Location",              // e.g., Property, Site
+        "Asset",                 // e.g., Equipment, Facility
+        "Document",              // e.g., Report, Study
+        "Event"                  // e.g., Meeting, Hearing
+    ],
+    relationship_descriptor: "Relationships between entities in the energy sector, including technical, economic, regulatory, spatial, and business relationships",
+    relationship_types: [
+        // Technical Energy Relationships
+        "produces",              // EnergyProducer -> EnergyResource
+        "consumes",              // EnergyConsumer -> EnergyResource
+        "transmits",             // EnergyInfrastructure -> EnergyLocation
+        "distributes",           // EnergyInfrastructure -> EnergyConsumer
+        "stores",                // EnergyStorage -> EnergyResource
+        "generates",             // EnergyTechnology -> EnergyResource
+        "connects",              // EnergyInfrastructure -> EnergyInfrastructure
+        "composes",              // EnergySystem -> EnergyComponent
+        "locatedAt",             // EnergyTechnology -> EnergyLocation
 
-                // Business and Legal Relationships
-                "hasAgreementWith",      // Entity -> Entity (with Agreement)
-                "isPartyTo",             // Entity -> Agreement
-                "owns",                  // Entity -> Asset
-                "operates",              // Entity -> Asset/Infrastructure
-                "manages",               // Entity -> Project/System
-                "providesServiceTo",     // Entity -> Entity
-                "receivesServiceFrom",   // Entity -> Entity
-                "affects",               // Entity -> Entity
-                "influences",            // Entity -> Entity
-                "interactsWith",         // Entity -> Entity
-                "participatesIn",        // Entity -> Event/Project
-                "organizes",             // Entity -> Event
-                "attends",               // Entity -> Event
-                "submits",               // Entity -> Document
-                "reviews",               // Entity -> Document
-                "approves",              // Entity -> Document/Project
-                "rejects",               // Entity -> Document/Project
-                "commentsOn",            // Entity -> Document/Event
-                "represents",            // Entity -> Entity
-                "advises",               // Entity -> Entity
-                "consults",              // Entity -> Entity
-                "collaboratesWith",      // Entity -> Entity
-                "competesWith",          // Entity -> Entity
-                "supports",              // Entity -> Entity/Project
-                "opposes",               // Entity -> Entity/Project
-                "regulates",             // Entity -> Entity/Market
-                "enforces",              // Entity -> Policy/Market
-                "monitors",              // Entity -> System/Project
-                "reportsTo",             // Entity -> Entity
-                "isPartOf",              // Entity -> Entity
-                "contains",              // Entity -> Entity
-                "belongsTo",             // Entity -> Entity
-                "associatesWith",        // Entity -> Entity
-                "relatesTo",             // Entity -> Entity
-                "impacts",               // Entity -> Entity
-                "affectsRevenueOf",      // Entity -> Entity
-                "affectsCostOf",         // Entity -> Entity
-                "affectsOperationOf",    // Entity -> Entity
-                "affectsDevelopmentOf",  // Entity -> Entity
-                "affectsMaintenanceOf",  // Entity -> Entity
-                "affectsSafetyOf",       // Entity -> Entity
-                "affectsReliabilityOf",  // Entity -> Entity
-                "affectsEfficiencyOf",   // Entity -> Entity
-                "affectsSustainabilityOf" // Entity -> Entity
-            ]
-        };
+        // Business and Legal Relationships
+        "hasAgreementWith",      // Entity -> Entity (with Agreement)
+        "isPartyTo",             // Entity -> Agreement
+        "owns",                  // Entity -> Asset
+        "operates",              // Entity -> Asset/Infrastructure
+        "manages",               // Entity -> Project/System
+        "providesServiceTo",     // Entity -> Entity
+        "receivesServiceFrom",   // Entity -> Entity
+        "affects",               // Entity -> Entity
+        "influences",            // Entity -> Entity
+        "interactsWith",         // Entity -> Entity
+        "participatesIn",        // Entity -> Event/Project
+        "organizes",             // Entity -> Event
+        "attends",               // Entity -> Event
+        "submits",               // Entity -> Document
+        "reviews",               // Entity -> Document
+        "approves",              // Entity -> Document/Project
+        "rejects",               // Entity -> Document/Project
+        "commentsOn",            // Entity -> Document/Event
+        "represents",            // Entity -> Entity
+        "advises",               // Entity -> Entity
+        "consults",              // Entity -> Entity
+        "collaboratesWith",      // Entity -> Entity
+        "competesWith",          // Entity -> Entity
+        "supports",              // Entity -> Entity/Project
+        "opposes",               // Entity -> Entity/Project
+        "regulates",             // Entity -> Entity/Market
+        "enforces",              // Entity -> Policy/Market
+        "monitors",              // Entity -> System/Project
+        "reportsTo",             // Entity -> Entity
+        "isPartOf",              // Entity -> Entity
+        "contains",              // Entity -> Entity
+        "belongsTo",             // Entity -> Entity
+        "associatesWith",        // Entity -> Entity
+        "relatesTo",             // Entity -> Entity
+        "impacts",               // Entity -> Entity
+        "affectsRevenueOf",      // Entity -> Entity
+        "affectsCostOf",         // Entity -> Entity
+        "affectsOperationOf",    // Entity -> Entity
+        "affectsDevelopmentOf",  // Entity -> Entity
+        "affectsMaintenanceOf",  // Entity -> Entity
+        "affectsSafetyOf",       // Entity -> Entity
+        "affectsReliabilityOf",  // Entity -> Entity
+        "affectsEfficiencyOf",   // Entity -> Entity
+        "affectsSustainabilityOf" // Entity -> Entity
+    ]
+};
     }
     
     /**
@@ -347,47 +347,47 @@ Only include entities and relationships that are clearly mentioned in the text. 
     
     // Utility methods from the original file
     calculateStringSimilarity(str1, str2) {
-        const s1 = str1.toLowerCase();
-        const s2 = str2.toLowerCase();
-        
-        // If one string contains the other, they're likely the same entity
-        if (s1.includes(s2) || s2.includes(s1)) {
-            return 0.8;
-        }
-        
-        // Calculate Levenshtein distance
-        const matrix = Array(s1.length + 1).fill().map(() => Array(s2.length + 1).fill(0));
-        
-        for (let i = 0; i <= s1.length; i++) matrix[i][0] = i;
-        for (let j = 0; j <= s2.length; j++) matrix[0][j] = j;
-        
-        for (let i = 1; i <= s1.length; i++) {
-            for (let j = 1; j <= s2.length; j++) {
-                const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
-                matrix[i][j] = Math.min(
-                    matrix[i - 1][j] + 1,
-                    matrix[i][j - 1] + 1,
-                    matrix[i - 1][j - 1] + cost
-                );
-            }
-        }
-        
-        const maxLength = Math.max(s1.length, s2.length);
-        return 1 - (matrix[s1.length][s2.length] / maxLength);
-    }
-
-    normalizeEntityName(name) {
-        return name
-            .toLowerCase()
-            .trim()
-            .replace(/\s+/g, ' ')
-            .replace(/[.,]/g, '')
-            .replace(/\b(l\.?l\.?c\.?|l\.?p\.?|inc\.?|corp\.?|corporation)\b/g, '')
-            .replace(/\b(technologies|operations|utility|company|community|association|district|hoa)\b/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
+    const s1 = str1.toLowerCase();
+    const s2 = str2.toLowerCase();
+    
+    // If one string contains the other, they're likely the same entity
+    if (s1.includes(s2) || s2.includes(s1)) {
+        return 0.8;
     }
     
+    // Calculate Levenshtein distance
+    const matrix = Array(s1.length + 1).fill().map(() => Array(s2.length + 1).fill(0));
+    
+    for (let i = 0; i <= s1.length; i++) matrix[i][0] = i;
+    for (let j = 0; j <= s2.length; j++) matrix[0][j] = j;
+    
+    for (let i = 1; i <= s1.length; i++) {
+        for (let j = 1; j <= s2.length; j++) {
+            const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+            matrix[i][j] = Math.min(
+                matrix[i - 1][j] + 1,
+                matrix[i][j - 1] + 1,
+                matrix[i - 1][j - 1] + cost
+            );
+        }
+    }
+    
+    const maxLength = Math.max(s1.length, s2.length);
+    return 1 - (matrix[s1.length][s2.length] / maxLength);
+}
+
+    normalizeEntityName(name) {
+    return name
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, ' ')
+        .replace(/[.,]/g, '')
+        .replace(/\b(l\.?l\.?c\.?|l\.?p\.?|inc\.?|corp\.?|corporation)\b/g, '')
+        .replace(/\b(technologies|operations|utility|company|community|association|district|hoa)\b/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
     async processChunks(chunks) {
         const graphBuilder = new GraphBuilder();
 

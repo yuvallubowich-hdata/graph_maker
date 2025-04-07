@@ -91,49 +91,30 @@ class GraphProcessorService {
             // Add document to the resolved entities
             this.entityResolution.addEntity(documentNode);
             
-            // Process chunks (potentially in parallel)
-            console.time('chunk-processing');
-            const chunkProcessingStartTime = Date.now();
+            // Process chunks in parallel with increased concurrency
+            const concurrencyLimit = options.concurrencyLimit || 6; // Increased from 3 to 6
+            console.log(`Processing chunks in parallel with concurrency limit: ${concurrencyLimit}`);
             
-            // Decide whether to process sequentially or in parallel based on options
-            if (options.parallelProcessing) {
-                // Process chunks in parallel with concurrency limit
-                const concurrencyLimit = options.concurrencyLimit || 3;
-                console.log(`Processing chunks in parallel with concurrency limit: ${concurrencyLimit}`);
+            // Use a simple concurrency limiter
+            const results = [];
+            for (let i = 0; i < chunks.length; i += concurrencyLimit) {
+                const batch = chunks.slice(i, i + concurrencyLimit);
+                const batchPromises = batch.map((chunk, index) => 
+                    this._processChunk(chunk, i + index, chunks.length, documentNode, options)
+                );
                 
-                // Use a simple concurrency limiter
-                const results = [];
-                for (let i = 0; i < chunks.length; i += concurrencyLimit) {
-                    const batch = chunks.slice(i, i + concurrencyLimit);
-                    const batchPromises = batch.map((chunk, index) => 
-                        this._processChunk(chunk, i + index, chunks.length, documentNode, options)
-                    );
-                    
-                    const batchResults = await Promise.all(batchPromises);
-                    results.push(...batchResults);
-                }
-                
-                // Collect relationships from all chunks
-                results.forEach(result => {
-                    if (result && result.relationships) {
-                        allRelationships.push(...result.relationships);
-                    }
-                });
-            } else {
-                // Process chunks sequentially
-                for (let i = 0; i < chunks.length; i++) {
-                    const chunk = chunks[i];
-                    console.log(`Processing chunk ${i + 1}/${chunks.length}`);
-                    
-                    // Process the chunk
-                    const result = await this._processChunk(chunk, i, chunks.length, documentNode, options);
-                    if (result && result.relationships) {
-                        allRelationships.push(...result.relationships);
-                    }
-                }
+                const batchResults = await Promise.all(batchPromises);
+                results.push(...batchResults);
             }
             
-            this.metrics.nlpTotalTime = Date.now() - chunkProcessingStartTime;
+            // Collect relationships from all chunks
+            results.forEach(result => {
+                if (result && result.relationships) {
+                    allRelationships.push(...result.relationships);
+                }
+            });
+            
+            this.metrics.nlpTotalTime = Date.now() - chunkStartTime;
             console.timeEnd('chunk-processing');
             
             // Get all unique resolved entities
@@ -310,17 +291,51 @@ class GraphProcessorService {
         try {
             console.log(`Processing chunk ${index + 1}/${totalChunks} (${chunk.text.length} chars) with provider: ${options.llmProvider || 'default'}`);
             
-            // Extract entities
-            console.time(`chunk-${index + 1}-entity-extraction`);
-            const entityStartTime = Date.now();
-            const extractedEntities = await this.nlpService.extractEntities(chunk.text, { llmProvider: options.llmProvider });
-            const entityTime = Date.now() - entityStartTime;
-            this.metrics.entityExtractTime += entityTime;
-            console.timeEnd(`chunk-${index + 1}-entity-extraction`);
-            console.log(`Extracted ${extractedEntities.length} entities from chunk ${index + 1} in ${entityTime}ms`);
+            // Break chunk into smaller segments if it's very large
+            const maxSegmentSize = 3000; // characters
+            let textSegments = [];
+            
+            if (chunk.text.length > maxSegmentSize) {
+                // Split by sentences to avoid cutting in the middle of entities
+                const sentences = chunk.text.match(/[^.!?]+[.!?]+/g) || [chunk.text];
+                let currentSegment = '';
+                
+                for (const sentence of sentences) {
+                    if (currentSegment.length + sentence.length > maxSegmentSize) {
+                        textSegments.push(currentSegment);
+                        currentSegment = sentence;
+                    } else {
+                        currentSegment += sentence;
+                    }
+                }
+                
+                if (currentSegment.length > 0) {
+                    textSegments.push(currentSegment);
+                }
+                
+                console.log(`Split chunk ${index + 1} into ${textSegments.length} segments`);
+            } else {
+                textSegments = [chunk.text];
+            }
+            
+            // Process each segment and combine results
+            const allEntities = [];
+            
+            for (let i = 0; i < textSegments.length; i++) {
+                const segment = textSegments[i];
+                console.time(`chunk-${index + 1}-segment-${i + 1}-entity-extraction`);
+                const entityStartTime = Date.now();
+                const extractedEntities = await this.nlpService.extractEntities(segment, { llmProvider: options.llmProvider });
+                const entityTime = Date.now() - entityStartTime;
+                this.metrics.entityExtractTime += entityTime;
+                console.timeEnd(`chunk-${index + 1}-segment-${i + 1}-entity-extraction`);
+                console.log(`Extracted ${extractedEntities.length} entities from chunk ${index + 1} segment ${i + 1} in ${entityTime}ms`);
+                
+                allEntities.push(...extractedEntities);
+            }
             
             // Add document source to each entity
-            const entitiesWithSource = extractedEntities.map(entity => ({
+            const entitiesWithSource = allEntities.map(entity => ({
                 ...entity,
                 sources: [{
                     documentId: documentNode.id,
