@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const pdfRoutes = require('./routes/pdfRoutes');
 const graphRoutes = require('./routes/graphRoutes');
+const queryRoutes = require('./routes/queryRoutes');
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, '../uploads');
@@ -31,10 +32,16 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 // API routes
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/graph', graphRoutes);
+app.use('/api/query', queryRoutes);
 
 // Default route
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+
+// Route for the query interface
+app.get('/query', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/query.html'));
 });
 
 // Error handling middleware
